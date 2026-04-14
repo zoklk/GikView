@@ -1,0 +1,87 @@
+name: Edge Component Static Analysis
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - master
+    paths:
+      - 'edge/**'
+
+jobs:
+  edge-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Hadolint
+        id: s1
+        uses: hadolint/hadolint-action@v3.3.0
+        continue-on-error: true
+        with:
+          recursive: true
+
+      - name: YAML Lint
+        uses: karancode/yamllint-github-action@v2.1.1
+        id: s2
+        continue-on-error: true
+        with:
+          file_or_dir: edge/
+      
+      - name: Trivy
+        uses: aquasecurity/trivy-action@v0.35.0
+        id: s3
+        continue-on-error: true
+        with:
+          scan-type: 'config'
+          scan-ref: 'edge/'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          hide-progress: true
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2.3.4
+        id: s4
+        continue-on-error: true
+
+      - name: Set up Kubeconform
+        uses: bmuschko/setup-kubeconform@v1
+        id: s5
+        continue-on-error: true
+      
+      - name: Validate manifests
+        run: kubeconform -summary -verbose edge/
+        id: s6
+        continue-on-error: true
+
+      - name: Final Validation
+        if: always()
+        run: |
+          STATUS_S1="${{ steps.s1.outcome }}"
+          STATUS_S2="${{ steps.s2.outcome }}"
+          STATUS_S3="${{ steps.s3.outcome }}"
+          STATUS_S4="${{ steps.s4.outcome }}"
+          STATUS_S5="${{ steps.s5.outcome }}"
+          STATUS_S6="${{ steps.s6.outcome }}"
+
+          echo "Analysis Results:"
+          echo "s1 (Hadolint): $STATUS_S1"
+          echo "s2 (YAML Lint): $STATUS_S2"
+          echo "s3 (Trivy): $STATUS_S3"
+          echo "s4 (Gitleaks): $STATUS_S4"
+          echo "s5 (Kubeconform setup): $STATUS_S5"
+          echo "s6 (Validate manifests): $STATUS_S6"
+
+          if [[ "$STATUS_S1" != "success" ]] || \
+             [[ "$STATUS_S2" != "success" ]] || \
+             [[ "$STATUS_S3" != "success" ]] || \
+             [[ "$STATUS_S4" != "success" ]] || \
+             [[ "$STATUS_S5" != "success" ]] || \
+             [[ "$STATUS_S6" != "success" ]]; then
+            echo "Error: One or more static analysis steps failed."
+            exit 1
+          fi
