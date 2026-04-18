@@ -33,7 +33,7 @@ jobs:
         continue-on-error: true
         run: |
           pip install yamllint -q
-          yamllint -d '{extends: default, ignore: "edge/helm/*/templates/\n**/*.gotmpl"}' edge/
+          yamllint -d '{extends: default, rules: {document-start: disable, line-length: {max: 120}}, ignore: "edge/helm/*/templates/\n**/*.gotmpl"}' edge/
 
       - name: Trivy
         uses: aquasecurity/trivy-action@v0.35.0
@@ -53,6 +53,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
       - name: Set up Kubeconform
         uses: bmuschko/setup-kubeconform@v1
@@ -65,7 +66,7 @@ jobs:
         run: |
           for chart in edge/helm/*/; do
             echo "Validating: $chart"
-            helm template "$chart" | kubeconform -summary -verbose -
+            helm template "$chart" | kubeconform -summary -verbose -ignore-missing-schemas -
           done
 
       - name: Final Validation

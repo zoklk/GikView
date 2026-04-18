@@ -1,4 +1,26 @@
-config/cluster.yaml
-context/docs/overview.md
-logs/raw/*
-!logs/raw/.gitkeep
+# venv 관련
+.venv/
+__pycache__/
+*.egg-info/
+
+# Helm 의존성 해소 산출물 (workspace/helm/<svc>/ 에 생김)
+workspace/helm/*/charts/
+workspace/helm/*/Chart.lock
+workspace/helm/*/*.tgz
+
+.DS_Store
+.idea/
+.vscode/
+
+# 로컬 클로드 설정
+.claude/settings.json
+
+# 프로젝트 전역변수 설정
+config/harness.yaml
+
+# 하네스 런타임 산출물
+logs/
+.harness/
+
+# 개발환경 helm value파일
+edge/helm/*/values-dev.yaml

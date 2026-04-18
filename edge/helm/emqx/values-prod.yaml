@@ -1,0 +1,13 @@
+emqxConfig:
+  EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
+  EMQX_CLUSTER__DNS__RECORD_TYPE: "srv"
+  EMQX_CLUSTER__DNS__NAME: "emqx-headless.gikview.svc.cluster.local"
+  EMQX_NODE__NAME: "emqx@$(POD_NAME).emqx-headless.gikview.svc.cluster.local"
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

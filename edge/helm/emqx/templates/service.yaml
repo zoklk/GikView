@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "emqx.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mqtt
+      port: {{ .Values.service.ports.mqtt }}
+      targetPort: mqtt
+      protocol: TCP
+    - name: mqtts
+      port: {{ .Values.service.ports.mqtts }}
+      targetPort: mqtts
+      protocol: TCP
+    - name: dashboard
+      port: {{ .Values.service.ports.dashboard }}
+      targetPort: dashboard
+      protocol: TCP
