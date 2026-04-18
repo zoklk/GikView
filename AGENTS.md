@@ -65,15 +65,36 @@ Never call them from each other except in the documented direction
 ### New sub_goal from scratch
 
 1. Load `phase-spec-reader`, read the sub_goal section in
-   `context/phases/<phase>.md`, note the `**artifacts**:` field.
-2. Load `helm-chart-author` / `docker-author` / `cluster-env-inject` as
-   the artifacts dictate.
-3. Write `edge/helm/<service>/` and/or
-   `edge/docker/<service>/`. Writes land immediately —
-   `guard-path` blocks any path outside the workspace, and each
-   Write/Edit is appended to the active session log by the
-   `log-tool-call` hook.
-4. Confirm with the user, then suggest `/deploy <phase> <sub_goal>`.
+   `context/phases/<phase>.md`. Note the `**artifacts**:` field and
+   the narrative bullets below — ports (with roles), replicas,
+   resources, retention all live in the narrative, often under
+   sub-headings like `**Port**:` / `**리소스**:`.
+2. **Load domain knowledge.** If the sub_goal's `**references**:`
+   is non-`[none]`, Read each listed `context/knowledge/*.md` file
+   **before** authoring anything. These describe clustering,
+   discovery, storage, or port-protocol constraints of the
+   technology that cannot be inferred from the upstream chart alone.
+3. Decide **upstream vs self-built**:
+   - **Upstream** (using a prebuilt image from Docker Hub / GHCR /
+     Quay without customization): no `docker/<service>/` directory,
+     no Dockerfile. `values.yaml` points `image.repository` at the
+     upstream path (e.g. `emqx/emqx`). Skip `docker-author`.
+   - **Self-built** (your own Dockerfile): create
+     `edge/docker/<service>/Dockerfile`. `values.yaml`
+     uses `image.repository: <registry>/<service>` with `<registry>`
+     from `conventions.registry`. Load `docker-author`.
+4. Load `helm-chart-author` / `cluster-env-inject` (and
+   `docker-author` only in the self-built branch).
+5. Write `edge/helm/<service>/` and — if self-built —
+   `edge/docker/<service>/`, applying the requirements
+   from steps 1-2: narrative bullets become concrete
+   `containerPorts` / `Service.ports` / `resources.requests|limits`
+   / `replicaCount` in the chart; knowledge-file constraints shape
+   the Kind choice (StatefulSet vs Deployment), discovery config,
+   and volume layout. Writes land immediately: `guard-path` blocks
+   any path outside the workspace, and each Write/Edit is appended
+   to the active session log by the `log-tool-call` hook.
+6. Confirm with the user, then suggest `/deploy <phase> <sub_goal>`.
 
 ### Iterate on an existing service
 

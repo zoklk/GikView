@@ -43,7 +43,9 @@ Requirements narrative describing what this sub_goal delivers:
    interchangeable. If multiple match, stop and ask the user.
 2. The sub_goal section runs from its heading to the next `## `
    heading at the same level (or EOF).
-3. Parse these bold-field lines (all required):
+3. Parse these bold-field lines:
+
+   **Required:**
    - `**service_name**: <slug>` — must be a valid k8s label value
      (`[a-z0-9-]+`). Treat mismatches as a spec bug; stop and ask.
    - `**technology**: <name> [version]` — free-form.
@@ -53,15 +55,39 @@ Requirements narrative describing what this sub_goal delivers:
      - contains `helm`  → load `helm-chart-author` and
        `cluster-env-inject`.
      - contains `docker` → load `docker-author`.
-4. The narrative paragraph below the bold fields is the functional
-   requirement. Keep it in your working memory while authoring; do
-   not copy it verbatim into chart values.
+
+   **Optional (process if present):**
+   - `**node_category**: <category>` — see `cluster-env-inject`.
+   - `**references**: [<context/knowledge/*.md>, ...]` or `[none]`
+     — see next step.
+
+4. **Load references** (if `**references**:` is non-`[none]`): Read
+   each listed `context/knowledge/*.md` file **before** writing any
+   artifact. These describe clustering/storage/port/discovery
+   constraints of the **technology** that are invisible from the
+   upstream chart alone. Do not proceed to chart authoring until
+   these are loaded.
+
+5. **Parse the narrative bullets** below the bold fields. This is
+   where project-specific requirements live — ports and their roles,
+   replica counts, resource sizes, retention, optional features.
+   Sub-bullets under headings like `**Port**:` or `**리소스**:`
+   (resources) carry concrete numbers you must translate into
+   `containerPorts` / `Service.ports` / `resources.requests|limits`
+   / `replicaCount` in the Helm chart. Do not copy narrative text
+   verbatim into values — extract the data.
 
 ## What if `**artifacts**:` is missing?
 
 Older specs omit this field. Assume `helm` only and warn the user —
 the project has adopted the `**artifacts**:` convention (refactor
 §21.7); the spec should be updated.
+
+## What if `**references**:` points to a missing file?
+
+Treat as a spec bug. Stop and ask the user whether to proceed without
+the reference (risk: misconfigured chart) or abort. Do not silently
+fall back to "no references."
 
 ## Do not
 

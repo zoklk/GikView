@@ -9,14 +9,24 @@
 **technology**: <name> (<version>)
 **dependency**: [<other-sub-goal>, …] 또는 [none]
 **artifacts**: helm, docker
+**node_category**: (<category>)
+**references**: [<context/knowledge/*.md>, …] 또는 [none]
 
-해당 sub-goal 이 충족해야 할 기능 요구사항을 짧은 서술로 적습니다.
-간결하게 — 산문보다 bullet 이 낫습니다. 예:
+해당 sub-goal 이 충족해야 할 기능·운영 요구사항을 bullet 으로 적습니다.
+산문 한 문단보다 bullet 이 읽기 편하고, 포트·리소스처럼 항목이 많은
+부분은 **하위 bullet 으로 그룹**을 지어 주세요 — 이 narrative 가
+helm-chart-author 가 참조하는 실제 스펙입니다. 예:
 
-- /metrics 를 9090 포트로 노출
-- observability, my-project 네임스페이스 수집
-- 15일 retention, 10GB 볼륨
+- Prometheus 2.51 단일 replica 배포 (HA 불필요, 데이터는 PVC 에 영속)
+- observability / my-project 네임스페이스만 스크레이프
+- 15일 retention, 10GB PVC
 - ServiceMonitor CRD 필요 (prometheus-operator 에 의존)
+- **Port**:
+  - `http: 9090` — /metrics 엔드포인트, 내부 스크레이프 전용
+  - `grpc: 10901` — Thanos sidecar 와 통신 (prod 에서만)
+- **리소스** (dev / prod):
+  - CPU: `100m` / `500m`
+  - Memory: `256Mi` / `1Gi`
 
 ## Sub-goal: <next-sub-goal-name>
 
@@ -24,6 +34,8 @@
 **technology**: ...
 **dependency**: [<previous-sub-goal>]
 **artifacts**: helm
+**node_category**: [none]
+**references**: [none]
 
 ...
 
@@ -40,7 +52,7 @@
 ## 필드 레퍼런스
 
 `**service_name**`
-: URL-safe slug. `edge/helm/` 와 `edge/docker/`
+: URL-safe slug. `{{workspace_dir}}/helm/` 와 `{{workspace_dir}}/docker/`
   아래의 폴더명과 일치해야 합니다. 하네스는 이 값과
   `conventions.release_name` 을 조합해 릴리스 이름을 계산합니다.
 
@@ -57,3 +69,21 @@
 : `helm`, `docker` 중 하나 또는 둘. 어떤 author 스킬을 로드할지,
   어떤 CLI 단계를 돌릴지 결정합니다. **필수** — phase-spec-reader
   가 누락 시 경고합니다.
+
+`**node_category**`
+: 선택 필드. `config/harness.yaml` 의
+  `environments.<env>.node_selectors` 키 중 하나와 일치해야 합니다
+  (예: `storage`, `monitoring`). 값이 있으면 `cluster-env-inject`
+  스킬이 **결정적으로** 그 키의 호스트명을 `values-<env>.yaml` 의
+  `nodeSelector` 에 주입합니다. 생략하면 에이전트가 `technology`
+  와 서비스 설명으로 카테고리를 추론하거나, nodeSelector 자체를
+  생성하지 않습니다. 카테고리가 `harness.yaml` 에 없으면 경고.
+
+`**references**`
+: `context/knowledge/<...>.md` 파일 경로 목록. phase-spec-reader
+  가 sub_goal 을 해석할 때 이 파일들을 먼저 Read 하도록 지시합니다.
+  도메인 지식이 필요한 서비스 (클러스터링, 스토리지 CRD, 특수 포트
+  프로토콜) 에 사용. 없으면 `[none]`. 기술 일반의 운영 제약 (디스커버리
+  방식, 필수 헤드리스 서비스 등) 은 여기서 가리키는 knowledge 파일에
+  들어가고, 이 phase 에서 달성할 **프로젝트 고유 요구사항** (포트 역할,
+  리소스 크기, retention) 은 위 narrative bullet 에 둡니다.

@@ -3,10 +3,11 @@
 ## Sub-goal: emqx
 
 **service_name**: emqx
-**technology**: emqx (5.8.6)
+**technology**: emqx/emqx (5.8.6)
 **dependency**: [none]
 **artifacts**: helm
 **node_category**: [none]
+**references**: [context/knowledge/emqx.md]
 
 - EMQX 5.8.6 3-Pod StatefulSet HA 클러스터 구축.
 - 각 Pod는 하드웨어 장애 대비를 위해 서로 다른 노드에 배치(Anti-affinity).
