@@ -1,0 +1,59 @@
+# Phase: <phase-name>
+
+이 phase 가 무엇을 제공하고, 왜 하나의 일관된 작업 단위인지 한 단락으로
+요약. 이 파일을 `<phase-name>.md` 로 복사한 뒤 빈칸을 채우세요.
+
+## Sub-goal: <sub-goal-name>
+
+**service_name**: <slug>
+**technology**: <name> (<version>)
+**dependency**: [<other-sub-goal>, …] 또는 [none]
+**artifacts**: helm, docker
+
+해당 sub-goal 이 충족해야 할 기능 요구사항을 짧은 서술로 적습니다.
+간결하게 — 산문보다 bullet 이 낫습니다. 예:
+
+- /metrics 를 9090 포트로 노출
+- observability, my-project 네임스페이스 수집
+- 15일 retention, 10GB 볼륨
+- ServiceMonitor CRD 필요 (prometheus-operator 에 의존)
+
+## Sub-goal: <next-sub-goal-name>
+
+**service_name**: ...
+**technology**: ...
+**dependency**: [<previous-sub-goal>]
+**artifacts**: helm
+
+...
+
+---
+
+## 표기 규칙
+
+- `<foo>` — 플레이스홀더. 꺾쇠째 지우고 실제 값으로 교체.
+- `(<foo>)` — 선택 필드. 쓰지 않을 거면 괄호째 삭제. 예:
+  `prometheus 2.51.0` 또는 `prometheus`.
+- `[<foo>, …]` / `[none]` — **리터럴 리스트**. 대괄호는 유지하고
+  내용만 교체. 예: `[prometheus-operator, alertmanager]`.
+
+## 필드 레퍼런스
+
+`**service_name**`
+: URL-safe slug. `edge/helm/` 와 `edge/docker/`
+  아래의 폴더명과 일치해야 합니다. 하네스는 이 값과
+  `conventions.release_name` 을 조합해 릴리스 이름을 계산합니다.
+
+`**technology**`
+: 사용하는 upstream 프로젝트와 (해당될 경우) 버전. 버전은 선택이니
+  없으면 `(<version>)` 괄호째 생략합니다. runtime-diagnoser 가
+  올바른 upstream 문서를 고를 때 참고합니다.
+
+`**dependency**`
+: 먼저 배포돼야 하는 다른 sub-goal 목록. 독립이면 `[none]`. 에이전트는
+  의존성 순서대로 스캐폴드합니다.
+
+`**artifacts**`
+: `helm`, `docker` 중 하나 또는 둘. 어떤 author 스킬을 로드할지,
+  어떤 CLI 단계를 돌릴지 결정합니다. **필수** — phase-spec-reader
+  가 누락 시 경고합니다.
