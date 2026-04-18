@@ -1,0 +1,11 @@
+service:
+  ports:
+    mqtt: 1883
+    mqtts: 8883
+
+ipPool:
+  cidr: ""  # set per env
+
+l2Policy:
+  interfaces:
+    - "^eth[0-9]+"

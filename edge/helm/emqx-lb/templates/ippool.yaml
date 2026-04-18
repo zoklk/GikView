@@ -1,0 +1,12 @@
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: emqx-pool
+  labels:
+    {{- include "emqx-lb.labels" . | nindent 4 }}
+spec:
+  blocks:
+    - cidr: {{ .Values.ipPool.cidr | quote }}
+  serviceSelector:
+    matchLabels:
+      app.kubernetes.io/name: emqx-lb
