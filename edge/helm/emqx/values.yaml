@@ -1,0 +1,46 @@
+replicaCount: 3
+
+image:
+  repository: emqx/emqx
+  tag: "5.8.6"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    mqtt: 1883
+    mqtts: 8883
+    dashboard: 18083
+    ekka: 4370
+
+emqxConfig:
+  EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
+  EMQX_CLUSTER__DNS__RECORD_TYPE: "srv"
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "384Mi"
+  limits:
+    cpu: "500m"
+    memory: "384Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault

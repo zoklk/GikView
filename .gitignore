@@ -21,3 +21,6 @@ config/harness.yaml
 # 하네스 런타임 산출물
 logs/
 .harness/
+
+# 개발환경 helm value파일
+edge/helm/*/values-dev.yaml

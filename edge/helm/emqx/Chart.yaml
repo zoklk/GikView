@@ -1,0 +1,5 @@
+apiVersion: v2
+name: emqx
+version: 0.1.0
+appVersion: "5.8.6"
+description: EMQX 5.8.6 3-Pod StatefulSet HA MQTT broker
