@@ -1,5 +1,4 @@
 name: Edge Component Static Analysis
-
 on:
   pull_request:
     branches:
@@ -7,7 +6,6 @@ on:
       - master
     paths:
       - 'edge/**'
-
 jobs:
   edge-lint:
     runs-on: ubuntu-latest
@@ -19,18 +17,24 @@ jobs:
 
       - name: Hadolint
         id: s1
-        uses: hadolint/hadolint-action@v3.3.0
         continue-on-error: true
-        with:
-          recursive: true
+        run: |
+          if find edge/ -name 'Dockerfile' | grep -q .; then
+            docker run --rm -i \
+              -v "$PWD:/workspace" \
+              hadolint/hadolint \
+              hadolint $(find edge/ -name 'Dockerfile' | tr '\n' ' ')
+          else
+            echo "No Dockerfile found, skipping."
+          fi
 
       - name: YAML Lint
-        uses: karancode/yamllint-github-action@v2.1.1
         id: s2
         continue-on-error: true
-        with:
-          file_or_dir: edge/
-      
+        run: |
+          pip install yamllint -q
+          yamllint -d '{extends: default, ignore: "edge/helm/*/templates/\n**/*.gotmpl"}' edge/
+
       - name: Trivy
         uses: aquasecurity/trivy-action@v0.35.0
         id: s3
@@ -47,16 +51,22 @@ jobs:
         uses: gitleaks/gitleaks-action@v2.3.4
         id: s4
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Kubeconform
         uses: bmuschko/setup-kubeconform@v1
         id: s5
         continue-on-error: true
-      
+
       - name: Validate manifests
-        run: kubeconform -summary -verbose edge/
         id: s6
         continue-on-error: true
+        run: |
+          for chart in edge/helm/*/; do
+            echo "Validating: $chart"
+            helm template "$chart" | kubeconform -summary -verbose -
+          done
 
       - name: Final Validation
         if: always()
@@ -67,7 +77,6 @@ jobs:
           STATUS_S4="${{ steps.s4.outcome }}"
           STATUS_S5="${{ steps.s5.outcome }}"
           STATUS_S6="${{ steps.s6.outcome }}"
-
           echo "Analysis Results:"
           echo "s1 (Hadolint): $STATUS_S1"
           echo "s2 (YAML Lint): $STATUS_S2"
@@ -75,7 +84,6 @@ jobs:
           echo "s4 (Gitleaks): $STATUS_S4"
           echo "s5 (Kubeconform setup): $STATUS_S5"
           echo "s6 (Validate manifests): $STATUS_S6"
-
           if [[ "$STATUS_S1" != "success" ]] || \
              [[ "$STATUS_S2" != "success" ]] || \
              [[ "$STATUS_S3" != "success" ]] || \
