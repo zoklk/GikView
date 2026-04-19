@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # smoke-test-emqx.sh
 # Phase  : messaging
-# Sub-Goal: emqx
+# Service: emqx
 
 set -euo pipefail
 NS="${HARNESS_NAMESPACE:-gikview}"

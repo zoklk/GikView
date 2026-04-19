@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-  # smoke-test-cilium-l2-vip.sh
+  # smoke-test-emqx-lb.sh
   # Phase  : messaging
-  # Sub-Goal: cilium-l2-vip
+  # Service: emqx-lb
 
   set -euo pipefail
   NS="${NAMESPACE:?NAMESPACE env not injected by runtime}"
