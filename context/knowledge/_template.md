@@ -2,8 +2,8 @@
 
 > 이 문서는 `{{workspace_dir}}/helm/<service>/` · `{{workspace_dir}}/docker/<service>/`
 > 아티팩트를 작성하는 LLM 에 주입됩니다. 모든 설정값은 이 프로젝트에서
-> 실제로 검증된 것이어야 합니다. `context/phases/<phase>.md` 의 sub_goal
-> 이 `**references**:` 로 이 파일을 가리키면 phase-spec-reader 가
+> 실제로 검증된 것이어야 합니다. `context/phases/<phase>.md` 의 service
+> 가 `**references**:` 로 이 파일을 가리키면 phase-spec-reader 가
 > 자동으로 Read 합니다. runtime-diagnoser 도 실패 진단 시 이 파일을
 > 먼저 참조합니다.
 

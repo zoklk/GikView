@@ -1,8 +1,7 @@
 # Phase: messaging
 
-## Sub-goal: emqx
+## Service: emqx
 
-**service_name**: emqx
 **technology**: emqx/emqx (5.8.6)
 **dependency**: [none]
 **artifacts**: helm
@@ -21,9 +20,8 @@
   - CPU: `200m` / `500m`
   - Memory: `384Mi` / `512Mi` (개발 alpha 클러스터)
 
-## Sub-goal: cilium-l2-vip
+## Service: emqx-lb
 
-**service_name**: emqx-lb
 **technology**: cilium (1.19.2)
 **dependency**: [emqx]
 **artifacts**: helm
