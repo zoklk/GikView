@@ -1,6 +1,6 @@
 #!/bin/bash
 # emqx-lb 재배포 시 CPU 부하 측정
-# 사용법: ./run_testE.sh
+# 사용법: ./cilium_load2_test
 
 TS=$(date +%H%M%S)
 DURATION=180   # 3분
