@@ -1,5 +1,7 @@
 # EMQX 배포 중 엣지 클러스터 cascading failure와 SSH 단절
 
+> 이 디렉토리의 문서, 시각화 자료는 Claude(Anthropic)를 활용해 작성됨.
+
 - 발생: 2026-04-20
 - 상태: 원인 확정
 - 최종 상태: [result.md](result.md)
