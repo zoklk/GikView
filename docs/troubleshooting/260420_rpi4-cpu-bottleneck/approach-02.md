@@ -26,7 +26,7 @@ Approach 1 이후 emqx 정상 동작 테스트를 위해 배포를 이어가던 
   - 본 가설은 **Cilium Pod의 CPU 부하**에만 초점. 노드 전체 CPU/iowait 및 EMQX Pod 자체의 부하는 별도 관찰 대상으로 이월
 - **결과**:
 
-  ![Cilium 3-Pod CPU sum during emqx-lb redeploy](assets/testE_cilium_cpu.png) <!-- testE: helm uninstall/install 구간 포함 180s, Cilium 3 Pod CPU 합계 시계열 -->
+  <img src="./assets/testE_cilium_cpu.png" height="350">
 
   baseline 구간에서 3 Pod CPU 합계가 약 240m로 유지되다가, `install_done` 직후 약 10초 뒤부터 **532m**까지 상승해 약 13초간 유지. 이후 잠시 회복했다가 370m 수준의 2차 피크가 한 번 더 발생. 평시 대비 약 2배 상승이 관측되어 Approach 1의 빈 Service churn 결과(baseline 대비 변화 없음)와 대비.
 
