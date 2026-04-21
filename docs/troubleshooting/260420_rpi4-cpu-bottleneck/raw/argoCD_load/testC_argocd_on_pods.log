@@ -1,0 +1,7 @@
+argocd-application-controller-0                     11m   133Mi   
+argocd-applicationset-controller-74969fbb69-7j8l2   2m    47Mi    
+argocd-dex-server-fc9dbc879-cd647                   2m    114Mi   
+argocd-notifications-controller-56f9b68ddc-tgrgj    1m    44Mi    
+argocd-redis-55b9648ccd-q8nmc                       26m   27Mi    
+argocd-repo-server-76bbb9c89f-6m9d8                 3m    83Mi    
+argocd-server-8ddcdb6d8-xntqk                       5m    59Mi    

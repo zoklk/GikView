@@ -1,0 +1,15 @@
+[14:36:27] EVENT uninstall_start
+I0420 14:36:27.912524    4584 warnings.go:107] "Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2 CiliumLoadBalancerIPPool"
+release "emqx-lb" uninstalled
+[14:36:28] EVENT uninstall_done
+[14:36:58] EVENT install_start
+I0420 14:36:59.132648    5507 warnings.go:107] "Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2 CiliumLoadBalancerIPPool"
+I0420 14:36:59.384650    5507 warnings.go:107] "Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2 CiliumLoadBalancerIPPool"
+NAME: emqx-lb
+LAST DEPLOYED: Mon Apr 20 14:36:58 2026
+NAMESPACE: gikview
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+[14:37:01] EVENT install_done
+[14:37:02] EVENT external_ip_assigned: 192.168.0.200
