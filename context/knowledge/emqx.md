@@ -39,11 +39,28 @@ extraVolumeMounts:
 - **Headless Service 필수 구성**: SRV 레코드 생성을 위해 서비스의 `ports` 섹션에 `ekka` 포트(4370)의 `name`이 반드시 명시되어야 함.
 - **권한 제약**: `readOnlyRootFilesystem` 적용 시 데이터 및 로그 경로에 쓰기 가능한 볼륨(EmptyDir 등) 할당이 누락되면 기동에 실패함.
 
+## 서비스 구성
+
+EMQX는 용도별로 3개의 Service 리소스로 구성됨.
+
+| 서비스 | 타입 | 용도 |
+|---|---|---|
+| `emqx-headless` | ClusterIP (None) | EMQX pod 간 DNS SRV 클러스터 디스커버리 전용 |
+| `emqx` | ClusterIP | 클러스터 내부 pod(센서 데이터 수신 후 외부 서버 전달 서비스 등)의 EMQX 접근 전용 |
+| `emqx-nodeport` | NodePort (`externalTrafficPolicy: Local`) | ESP32 등 외부 클라이언트 접근 전용. 공유기 포트포워딩 대상. |
+
+`emqx-nodeport`에 `externalTrafficPolicy: Local` 설정이 필수임. 미설정 시 kube-proxy가 임의 pod로 DNAT하여, 공유기 포트포워딩 기반
+failover(worker1 장애 시 worker2로 전환)가 무의미해짐.
+
+`emqx` ClusterIP를 별도로 유지하는 이유: NodePort 서비스만 두면 내부 pod가 외부 경유 경로를 타게 되므로 내부 접근용 서비스를 분리함.
+
 ## 환경별 분리 필요 항목
 
 | 항목 | dev (alpha cluster) | prod (edge) |
 |------|-----|------|
 | `EMQX_CLUSTER__DNS__NAME` | `emqx-headless.gikview.svc.alpha.nexus.local` | `emqx-headless.gikview.svc.cluster.local` |
 | `EMQX_NODE__NAME` | `emqx@$(POD_NAME).emqx-headless.gikview.svc.alpha.nexus.local` | `emqx@$(POD_NAME).emqx-headless.gikview.svc.cluster.local` |
-| `resources.requests.memory` | `384Mi` | `512Mi` |
-| `resources.limits.memory` | `384Mi` | `512Mi` |
+| `resources.requests.memory` | `384Mi` | `384Mi` |
+| `resources.limits.memory` | `512Mi` | `512Mi` |
+| `service.nodePorts.mqtt` | `31883` | `31883` |
+| `service.nodePorts.mqtts` | `31884` | `31884` |

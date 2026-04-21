@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-nodeport
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    {{- include "emqx.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mqtt
+      port: {{ .Values.service.ports.mqtt }}
+      targetPort: mqtt
+      nodePort: {{ .Values.nodePortService.nodePorts.mqtt }}
+      protocol: TCP
+    - name: mqtts
+      port: {{ .Values.service.ports.mqtts }}
+      targetPort: mqtts
+      nodePort: {{ .Values.nodePortService.nodePorts.mqtts }}
+      protocol: TCP

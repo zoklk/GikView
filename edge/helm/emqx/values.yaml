@@ -1,4 +1,4 @@
-replicaCount: 3
+replicaCount: 2
 
 image:
   repository: emqx/emqx
@@ -12,6 +12,11 @@ service:
     mqtts: 8883
     dashboard: 18083
     ekka: 4370
+
+nodePortService:
+  nodePorts:
+    mqtt: 31883
+    mqtts: 31884
 
 emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"

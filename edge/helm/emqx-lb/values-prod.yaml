@@ -1,6 +1,0 @@
-ipPool:
-  cidr: "192.168.0.200/32"
-
-l2Policy:
-  interfaces:
-    - "^eth[0-9]+"

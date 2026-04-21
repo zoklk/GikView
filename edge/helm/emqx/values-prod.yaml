@@ -4,6 +4,11 @@ emqxConfig:
   EMQX_CLUSTER__DNS__NAME: "emqx-headless.gikview.svc.cluster.local"
   EMQX_NODE__NAME: "emqx@$(POD_NAME).emqx-headless.gikview.svc.cluster.local"
 
+nodePortService:
+  nodePorts:
+    mqtt: 31883
+    mqtts: 31884
+
 resources:
   requests:
     cpu: "200m"

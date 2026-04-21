@@ -23,16 +23,16 @@ for i in $(seq 1 $RETRIES); do
   COUNT=$(kubectl exec -n "$NS" emqx-0 -- /opt/emqx/bin/emqx ctl cluster status 2>/dev/null | (grep -oE "emqx@[^']+" || true) | wc -l)
 
   echo "attempt $i/$RETRIES: running_nodes=$COUNT"
-  if [ "$COUNT" = "3" ]; then
-    echo "Cluster successfully formed with 3 nodes."
+  if [ "$COUNT" = "2" ]; then
+    echo "Cluster successfully formed with 2 nodes."
     break
   fi
 
-  echo "$COUNT (expected 3), waiting ${INTERVAL}s..."
+  echo "$COUNT (expected 2), waiting ${INTERVAL}s..."
   sleep $INTERVAL
 done
 
-[ "$COUNT" = "3" ] || {
+[ "$COUNT" = "2" ] || {
   echo "FAIL: Cluster not fully formed after 100s (running_nodes=$COUNT)."
   echo "Diagnostic: Check EMQX_CLUSTER__DNS__RECORD_TYPE and EMQX_NODE__NAME consistency."
   exit 1
@@ -97,7 +97,7 @@ import sys, json
 try:
     data = json.load(sys.stdin)
     running_nodes = [n for n in data if n['node_status'] == 'running']
-    if len(running_nodes) == 3:
+    if len(running_nodes) == 2:
         sys.exit(0)
     else:
         print('Only ' + str(len(running_nodes)) + ' nodes running')
