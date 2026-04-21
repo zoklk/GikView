@@ -15,7 +15,7 @@ mpstat 로그 기반 노드 전체 CPU(usr+sys) 시계열 그래프 생성.
     --segment-boundary 120 \
     --segment-labels "argocd running (baseline)" "argocd scaled to 0" \
     --title "Node CPU (usr+sys) - testC: Argo CD steady-state load" \
-    --output ../assets/testC_node_cpu.png
+    --output ./testC_node_cpu.png
 """
 
 import argparse

@@ -8,7 +8,7 @@ fio sync write latency percentile 비교 그래프 생성.
     python3 plot_fio_latency_percentile.py \
     --microsd ../raw/microSD-io_load/testA_fio_microSD.json \
     --usb30 ../raw/microSD-io_load/testA_fio_usb30.json \
-    --output ../assets/testA_microSD_fio-latency.png
+    --output ./testA_microSD_fio-latency.png
 """
 
 import argparse
