@@ -1,0 +1,13 @@
+[
+  { "roomId": "A1_01", "building": "A동", "floor": "1층", "roomName": "커뮤니티실", "isOccupied": true, "note": "" },
+  { "roomId": "A1_02", "building": "A동", "floor": "1층", "roomName": "학생휴게실", "isOccupied": false, "note": "" },
+  { "roomId": "A2_01", "building": "A동", "floor": "2층", "roomName": "구관 토론실", "isOccupied": true, "note": "gist house에서 예약 후 사용" },
+  { "roomId": "A2_02", "building": "A동", "floor": "2층", "roomName": "학생휴게실", "isOccupied": false, "note": "" },
+  { "roomId": "A3_01", "building": "A동", "floor": "3층", "roomName": "학생 휴게실 1", "isOccupied": true, "note": "" },
+  { "roomId": "A3_02", "building": "A동", "floor": "3층", "roomName": "학생 휴게실 2", "isOccupied": false, "note": "" },
+  { "roomId": "A3_03", "building": "A동", "floor": "3층", "roomName": "노트북 열람실", "isOccupied": true, "note": "" },
+  { "roomId": "B1_01", "building": "B동", "floor": "1층", "roomName": "해동학술정보실", "isOccupied": true, "note": "gist house에서 예약 후 사용" },
+  { "roomId": "B1_02", "building": "B동", "floor": "1층", "roomName": "신관 매점", "isOccupied": true, "note": "" },
+  { "roomId": "B2_01", "building": "B동", "floor": "2층", "roomName": "신관 2층 회의실", "isOccupied": false, "note": "" },
+  { "roomId": "B3_01", "building": "B동", "floor": "3층", "roomName": "신관 3층 회의실", "isOccupied": false, "note": "" }
+]
