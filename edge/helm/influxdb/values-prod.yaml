@@ -1,0 +1,9 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s1
+
+persistence:
+  storageClassName: local-storage
+  pvName: influxdb-pv-prod
+  size: 50Gi
+  hostPath: /mnt/ssd/influxdb
+  nodeHostname: e-s1

@@ -1,10 +1,10 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: emqx
+  name: influxdb
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -12,9 +12,9 @@ spec:
   source:
     repoURL: https://github.com/zoklk/GikView.git
     targetRevision: dev
-    path: edge/helm/emqx
+    path: edge/helm/influxdb
     helm:
-      releaseName: emqx
+      releaseName: influxdb
       valueFiles:
         - values.yaml
         - values-prod.yaml
