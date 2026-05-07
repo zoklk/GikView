@@ -14,7 +14,7 @@
 | cicd | 로컬 하네스, Argo CD, GHCR | 작업 완료 | [cicd.md](cicd.md) |
 | messaging | EMQX, NodePort 노출 | 작업 완료 | [messaging.md](messaging.md) |
 | storage | InfluxDB | 진행 중 | [storage.md](storage.md) |
-| security | step-ca, mTLS, EST | 진행 예정 | [secutiry.md](security.md) |
-| pipeline | Edge Gateway, ESP32Device CRD | 진행 중 | - |
+| security | step-ca, cert-manager, mTLS, EST | 진행 중 | [security.md](security.md) |
+| pipeline | Edge Gateway, AWS Lambda, DynamoDB, API Gateway | 진행 예정 | - |
 | visibility | Prometheus, Grafana, eBPF, Heartbeat | 진행 예정 | - |
 
