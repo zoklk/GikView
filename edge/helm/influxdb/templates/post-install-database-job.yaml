@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}-create-database
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "influxdb.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "influxdb.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      # Pin the hook Job to the StatefulSet's node so the InfluxDB image
+      # is already in the kubelet cache. Otherwise the Job can land on a
+      # cold worker and the ~200MB image pull eats most of the helm
+      # --timeout budget before the wait-loop even starts.
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: create-database
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # On BackoffLimitExceeded the Job controller deletes failed pods
+          # and their kubectl logs disappear. FallbackToLogsOnError makes
+          # kubelet copy the last ~80 lines of stdout into pod status
+          # before deletion, so the next failure is debuggable.
+          terminationMessagePolicy: FallbackToLogsOnError
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: INFLUX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminTokenSecret.name }}
+                  key: {{ .Values.adminTokenSecret.tokenKey }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              HOST="http://{{ .Chart.Name }}:{{ .Values.service.ports.http }}"
+              DB="{{ .Values.database.name }}"
+              RETENTION="{{ .Values.database.retention }}"
+
+              # tcpSocket probe flips Pod Ready when :8181 is open (~7s),
+              # but InfluxDB needs ~20s more to finish catalog load and
+              # serve the API. Helm fires post-install hooks immediately
+              # after manifest apply, so poll the CLI — it succeeds only
+              # when the server can authenticate and list databases.
+              echo "Waiting for InfluxDB API at $HOST ..."
+              for i in $(seq 1 120); do
+                if influxdb3 show databases --host "$HOST" --token "$INFLUX_TOKEN" >/dev/null 2>&1; then
+                  echo "InfluxDB API reachable after ${i} attempt(s)."
+                  break
+                fi
+                if [ "$i" = "120" ]; then
+                  echo "FAIL: InfluxDB API at $HOST did not become reachable within 120s" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+
+              # InfluxDB 3 Core CLI rejects --retention-period none as a
+              # parse error ("expected number at 0") despite the docs
+               # claiming it means infinite. Omit the flag entirely for
+              # "none" — the server default is unlimited retention.
+              echo "Creating database '$DB' (retention=$RETENTION) ..."
+              if [ "$RETENTION" = "none" ] || [ -z "$RETENTION" ]; then
+                OUT=$(influxdb3 create database "$DB" \
+                  --host "$HOST" \
+                  --token "$INFLUX_TOKEN" 2>&1) && RC=0 || RC=$?
+              else
+                OUT=$(influxdb3 create database "$DB" \
+                  --host "$HOST" \
+                  --token "$INFLUX_TOKEN" \
+                  --retention-period "$RETENTION" 2>&1) && RC=0 || RC=$?
+              fi
+              echo "$OUT"
+
+              if [ "$RC" = "0" ]; then
+                echo "Database '$DB' created."
+                exit 0
+              fi
+
+              # Idempotent on reinstall/upgrade: "already exists" is success.
+              # Any other error must propagate so the operator sees it
+              # instead of a silent no-op like the previous `|| true`.
+              if echo "$OUT" | grep -qiE 'already exists|409'; then
+                echo "Database '$DB' already exists — treating as success."
+                exit 0
+              fi
+
+              echo "FAIL: create database returned exit $RC" >&2
+              exit "$RC"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

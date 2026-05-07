@@ -1,0 +1,55 @@
+replicaCount: 1
+
+image:
+  repository: influxdb
+  tag: "3.9-core"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  ports:
+    http: 8181
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1500
+  runAsGroup: 1500
+  fsGroup: 1500
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1500
+  runAsGroup: 1500
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+adminTokenSecret:
+  name: influxdb-admin-token
+  fileKey: admin-token.json
+  tokenKey: token
+
+database:
+  name: gikview
+  retention: none
+
+persistence:
+  storageClassName: local-storage
+  pvName: influxdb-pv
+  size: 5Gi
+  hostPath: /var/lib/influxdb3
+  nodeHostname: ""

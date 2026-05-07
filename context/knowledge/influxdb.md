@@ -123,7 +123,7 @@ spec:
 
 - **floating tag 위험**: `latest`, `core`, `3-core` 사용 시 마이너 / 패치 변경이 silent 하게 발생. 반드시 `3.9-core` 같은 마이너 고정 또는 `3.9.2-core` specific 태그 사용.
 
-- **호스트 디렉토리 권한**: hostPath / local PV 사용 시 호스트 측 디렉토리 소유자가 컨테이너 user (uid 1500) 와 일치해야 함. 불일치 시 WAL 쓰기 권한 거부로 기동 실패. 호스트에서 `chown 1500:1500` 사전 실행 또는 initContainer 로 권한 보정.
+- **호스트 디렉토리 권한**: local PV 사용 시 호스트 측 디렉토리 소유자가 컨테이너 user (uid 1500) 와 일치해야 함. 불일치 시 WAL 쓰기 권한 거부로 기동 실패. 호스트에서 `chown 1500:1500` 사전 실행 또는 initContainer 로 권한 보정.
 
 - **Database 자동 생성 안 됨**: write API 호출 전에 database 존재 필수. post-install Job 이 책임. Job 실패 시 Edge Gateway write 가 404 로 거부되므로 hook-weight 와 멱등성 중요.
 
@@ -149,7 +149,7 @@ spec:
 | 항목 | dev (alpha cluster) | prod (edge) |
 |------|-----|------|
 | `nodeSelector` | `kubernetes.io/hostname: alpha-w1` | `kubernetes.io/hostname: e-s1` |
-| local PV `hostPath` | `/var/lib/influxdb3` | `/mnt/ssd/influxdb` |
+| local PV `spec.local.path` | `/var/lib/influxdb3` | `/mnt/ssd/influxdb` |
 | `resources.requests.memory` | `256Mi` | `256Mi` |
 | `resources.limits.memory` | `512Mi` | `512Mi` |
 | `persistence.size` | `5Gi` | `50Gi` |

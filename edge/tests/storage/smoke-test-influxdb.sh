@@ -35,7 +35,9 @@ RETRIES=12
 INTERVAL=5
 HEALTH=""
 for i in $(seq 1 $RETRIES); do
-  HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/health" 2>/dev/null || echo "000")
+  HEALTH=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $TOKEN" \
+    "${BASE_URL}/health" 2>/dev/null || echo "000")
   [ "$HEALTH" = "200" ] && break
   echo "attempt $i/$RETRIES: /health=$HEALTH, waiting ${INTERVAL}s..."
   sleep $INTERVAL
@@ -49,8 +51,8 @@ echo "Health check passed."
 # ── 4. Database 'gikview' 존재 확인 ──────────────────────────────────────────
 echo "Verifying database '$DB_NAME' exists..."
 DB_RESP=$(curl -s -w "\n%{http_code}" \
-  "${BASE_URL}/api/v3/configure/database" \
-  -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
+    "${BASE_URL}/api/v3/configure/database?format=json" \
+    -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "")
 DB_HTTP_CODE=$(echo "$DB_RESP" | tail -n 1)
 DB_BODY=$(echo "$DB_RESP" | sed '$d')
 
@@ -64,7 +66,7 @@ echo "$DB_BODY" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    names = [d.get('iox_namespace') or d.get('db_name') or d.get('name') for d in data]
+    names = [d.get('iox::database') for d in data if d.get('iox::database') != '_internal']
     if '$DB_NAME' not in names:
         print('database \"$DB_NAME\" not found, got:', names)
         sys.exit(1)

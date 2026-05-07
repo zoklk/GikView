@@ -1,1 +1,7 @@
 KSV-0125
+
+# InfluxDB 3 Core image runs as uid/gid 1500 by default.
+# Phase spec (context/phases/storage.md) sets `chown 1500:1500` on the host PV path.
+# KSV-0020 / KSV-0021 prefer uid/gid > 10000 — not applicable to this upstream image.
+AVD-KSV-0020
+AVD-KSV-0021
