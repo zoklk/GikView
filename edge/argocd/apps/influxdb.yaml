@@ -25,9 +25,13 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: apps
       kind: StatefulSet
       name: influxdb
-      jsonPointers:
-        - /spec/volumeClaimTemplates
+      namespace: gikview
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates
+      managedFieldsManagers:
+        - kube-controller-manager
