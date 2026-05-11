@@ -64,6 +64,11 @@ metadata:
 metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "step-ca-whitelist"
+# step-ca 는 ca.json 을 hot-reload 못 함 → restart 시 initContainer 가 step-ca-whitelist 를
+# ca.json 템플릿에 재머지 (결정 c — context/knowledge/step-ca.md Policy 절 참고).
+# ⚠ step-ca StatefulSet 은 업스트림 step-certificates 차트가 워크로드 metadata annotation 훅을
+#   안 노출 → 이 Reloader annotation 은 엄브렐라 post-render(kustomize) strategic-merge patch 로
+#   부착 (대안 B = mapping-generator 가 rollout restart 직접 호출은 기각 — 상세 step-ca.md Policy 절).
 ```
 
 ## 알려진 주의사항
