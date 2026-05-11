@@ -1,0 +1,10 @@
+apiVersion: v2
+name: step-issuer
+description: step-issuer 0.10.2 umbrella — cert-manager external issuer + StepClusterIssuer
+type: application
+version: 0.1.0
+appVersion: "0.10.2"
+dependencies:
+  - name: step-issuer
+    version: "1.10.2"
+    repository: "https://smallstep.github.io/helm-charts/"

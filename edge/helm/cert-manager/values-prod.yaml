@@ -1,0 +1,11 @@
+# prod (edge cluster) — pin all cert-manager components to the security node
+# (environments.prod.node_selectors.security = e-s1).
+cert-manager:
+  nodeSelector:
+    kubernetes.io/hostname: e-s1
+  webhook:
+    nodeSelector:
+      kubernetes.io/hostname: e-s1
+  cainjector:
+    nodeSelector:
+      kubernetes.io/hostname: e-s1

@@ -171,9 +171,8 @@ initContainer 는 순수 values 로 가능. 메인 컨테이너는 `command: ["/
 `args` 끝이 `/home/step/config/ca.json`; config ConfigMap 을 RO 로 `/home/step/config` 에, PVC 를
 `/home/step/db` 에 마운트. 배선 요약: `inject.config` = 정적 템플릿 `ca.json` → `extraVolumes` 에
 `ca-merged` emptyDir + `step-ca-whitelist` configMap → `extraInitContainers` 의 `merge-ca-config`
-가 `cp -a /template/. /merged/` + jq 로 `allow.cn` 채움(set vs append 는 빈 allowlist 동작 확인 후
-확정) → `extraVolumeMounts` 로 `ca-merged` 를 `/home/step/config` 에 덮어 마운트(나중 마운트 우선
-→ `command`/`args` override 불필요) →
+가 `cp -a /template/. /merged/` + jq append → `extraVolumeMounts` 로 `ca-merged` 를
+`/home/step/config` 에 덮어 마운트(나중 마운트 우선 → `command`/`args` override 불필요) →
 `bootstrap.enabled: false`. **남은 비용은 딱 하나**: 차트가 StatefulSet metadata annotation 훅이
 없어 `step-ca-whitelist` 용 Reloader annotation 은 엄브렐라 차트의 post-render(kustomize)
 strategic-merge patch 로 확정 (`kustomization.yaml` + patch, step-ca StatefulSet `metadata` 에

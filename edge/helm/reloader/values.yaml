@@ -1,0 +1,31 @@
+# Umbrella chart values. The stakater/reloader subchart keeps everything under a
+# top-level "reloader:" key, so as a dependency it nests as reloader.reloader.*.
+# Env-specific nodeSelector lives in values-<env>.yaml.
+reloader:
+  reloader:
+    # Watch only the namespace this runs in (gikview) → namespaced Role, not ClusterRole.
+    watchGlobally: false
+    # Pick up newly-created ConfigMaps/Secrets immediately.
+    reloadOnCreate: true
+    # Annotation strategy: writes a pod-template annotation rather than mutating env vars.
+    reloadStrategy: annotations
+    # Mount /tmp as an emptyDir and flip the container's readOnlyRootFilesystem
+    # (the chart wires both off this one flag) — clears trivy KSV-0014.
+    readOnlyRootFileSystem: true
+    deployment:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+      # Container hardening — the chart's default containerSecurityContext is {},
+      # tripping trivy KSV-0001 / KSV-0003 / KSV-0004 / KSV-0106. The pod-level
+      # securityContext (runAsNonRoot, runAsUser 65534, seccompProfile RuntimeDefault)
+      # is already a chart default, so only the container-scoped bits are needed here.
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
