@@ -17,17 +17,35 @@ Helm chart: `smallstep/step-issuer` `1.10.2` (repo: `https://smallstep.github.io
 step-issuer 는 controller 만 배포 (Pod 1 개). 동작에 필요한 resource 는 `StepIssuer` 또는 `StepClusterIssuer` 커스텀 리소스로 별도 선언. 본 프로젝트는 다 namespace 에서 사용하므로 `StepClusterIssuer` 권장.
 
 ```yaml
-# values.yaml (공통)
-replicaCount: 1
-metrics:
-  enabled: false   # visibility 단계에서 enabled: true
-
-resources:
-  requests:
-    cpu: "10m"
-    memory: "32Mi"
-  limits:
-    memory: "128Mi"
+# edge/helm/step-issuer/values.yaml — 엄브렐라. "step-issuer:" 는 서브차트(controller)로,
+# "stepClusterIssuer:" 는 이 차트의 templates/stepclusterissuer.yaml 로 전달.
+step-issuer:
+  replicaCount: 1
+  metrics:
+    enabled: false               # visibility 단계에서 true
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { cpu: 100m, memory: 128Mi }
+  # 서브차트는 .Values.securityContext / .podSecurityContext 를 verbatim 통과 — trivy KSV 대응 차원에서 하드닝
+  # (/manager 는 controller-runtime 바이너리, on-disk state 없어 readOnlyRootFilesystem 안전).
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: { drop: ["ALL"] }
+    seccompProfile: { type: RuntimeDefault }
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile: { type: RuntimeDefault }
+  # cert-manager 가 gikview ns 에 있으므로(차트 기본 "cert-manager" 아님), 차트의 approver
+  # ClusterRoleBinding subject 도 여기로 맞춰야 StepClusterIssuer 대상 CertificateRequest 가 approved 됨
+  # (disableApprovalCheck 는 false 유지).
+  certManager:
+    serviceAccount:
+      name: cert-manager
+      namespace: gikview
 ```
 
 ### StepClusterIssuer 리소스
@@ -47,6 +65,7 @@ spec:
     kid: "<provisioner kid>"             # step ca provisioner list 로 확인
     passwordRef:
       name: "step-issuer-provisioner-password"
+      namespace: "gikview"               # cluster-scoped 리소스라 CRD 가 필수로 요구 (생략 시 invalid)
       key: "password"
 ```
 
@@ -68,7 +87,7 @@ step-ca 의 JWK provisioner 생성 시 사용한 비밀번호와 동일.
 
 - **caBundle 단일 라인 base64 필수**: 줄바꿈 포함된 PEM 을 그대로 yaml 에 넣으면 step-issuer 가 root CA 파싱 실패. `cat root_ca.crt | base64 -w 0` 로 변환.
 
-- **CertificateRequest approval 대기**: cert-manager v1.3+ 에서 CertificateRequest 는 자동으로 approved 컨디션이 붙는데, 오래된 cert-manager (pre v1.3) 와 함께 쓰면 step-issuer 가 무한 대기. 본 프로젝트 cert-manager 1.20.x 라 해당 없음. helm values 에 `args.disableApprovalCheck: false` 유지.
+- **CertificateRequest approval 대기**: cert-manager v1.3+ 에서 CertificateRequest 는 자동으로 approved 컨디션이 붙는데, 오래된 cert-manager (pre v1.3) 와 함께 쓰면 step-issuer 가 무한 대기. 본 프로젝트 cert-manager 1.20.x 라 해당 없음. helm values 에 `args.disableApprovalCheck: false` 유지 — 단 차트 approver 의 SA 이름/ns 를 실제 cert-manager 위치(`gikview`)에 맞췄을 때만 유효(`step-issuer.certManager.serviceAccount`).
 
 - **StepIssuer (namespace 스코프) vs StepClusterIssuer (cluster 스코프)**: 같은 issuer 를 여러 namespace 에서 쓸 거면 ClusterIssuer 권장. 본 프로젝트는 `gikview` 단일 namespace 라 둘 다 가능하나, 확장성 위해 ClusterIssuer.
 

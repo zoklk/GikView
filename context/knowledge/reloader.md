@@ -21,21 +21,22 @@ Helm chart: `stakater/reloader` chart `2.2.11` (repo: `https://stakater.github.i
 기본 동작은 모든 namespace 의 Deployment/StatefulSet/DaemonSet 을 watch. 본 프로젝트는 `gikview` namespace 한정으로 제한하여 권한 최소화.
 
 ```yaml
-# values.yaml (공통)
+# edge/helm/reloader/values.yaml — 엄브렐라. stakater/reloader 서브차트가 자체적으로 모든 키를 top-level
+# "reloader:" 아래 두므로, 의존성으로 끼면 reloader.reloader.* 로 이중 중첩됨.
 reloader:
-  watchGlobally: false              # 단일 namespace 한정
-  reloadOnCreate: true              # 새 ConfigMap/Secret 도 즉시 인식
-  reloadStrategy: "annotations"     # default. env-vars 대비 안전
-
-  deployment:
-    nodeSelector: {}                # 환경별 분리에서 설정
-    resources:
-      requests:
-        cpu: "10m"
-        memory: "32Mi"
-      limits:
-        cpu: "100m"
-        memory: "128Mi"
+  reloader:
+    watchGlobally: false            # 단일 namespace(gikview) 한정 → ClusterRole 대신 namespaced Role
+    reloadOnCreate: true            # 새 ConfigMap/Secret 도 즉시 인식
+    reloadStrategy: annotations      # default. env-vars 대비 안전
+    readOnlyRootFileSystem: true     # /tmp emptyDir + 컨테이너 readOnlyRootFilesystem (trivy KSV-0014). 키 철자 그대로(FileSystem)
+    deployment:
+      # nodeSelector 는 values-<env>.yaml 의 reloader.reloader.deployment.nodeSelector 에서 설정
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits:   { cpu: 100m, memory: 128Mi }
+      containerSecurityContext:      # 차트 기본은 {} → trivy KSV-0001/0003/0004/0106
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
 ```
 
 ### Annotation 패턴
@@ -93,5 +94,6 @@ metadata:
 
 | 항목 | dev (alpha cluster) | prod (edge) |
 |------|-----|------|
-| `reloader.deployment.nodeSelector` | `kubernetes.io/hostname: alpha-w1` | `kubernetes.io/hostname: e-s1` |
-| `reloader.namespaceSelector` | `gikview` | `gikview` |
+| `reloader.reloader.deployment.nodeSelector` | `kubernetes.io/hostname: alpha-w1` | `kubernetes.io/hostname: e-s1` |
+
+namespace 스코핑은 별도 `namespaceSelector` 가 아니라 `reloader.reloader.watchGlobally: false`(공통값)가 담당 — 릴리즈 ns(`gikview`)만 watch.

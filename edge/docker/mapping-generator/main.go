@@ -151,8 +151,11 @@ func renderACL(devices []string) string {
 }
 
 // renderWhitelist is the explicit CN allowlist step-ca trusts: a JSON array of
-// device CNs. step-ca's initContainer jq-merges it into ca.json's
-// policy.x509.allow.cn for the device-bootstrap / device-renewal provisioners.
+// device CNs. step-ca's merge initContainer jq-merges it into ca.json's
+// options.x509.templateData.allowedCNs for the X5C device-bootstrap /
+// device-renewal provisioners, whose leaf template's {{ fail }} guard rejects
+// any requested CN/SAN not in that list (OSS step-ca has no per-provisioner
+// policy block; the guard also requires every SAN to be of type "dns").
 func renderWhitelist(devices []string) string {
 	if devices == nil {
 		devices = []string{}

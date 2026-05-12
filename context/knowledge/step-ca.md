@@ -4,7 +4,7 @@
 
 ## 이미지 / 버전
 
-**채택**: `ghcr.io/zoklk/step-ca:edge` — 자체 빌드 (베이스 `smallstep/step-ca:0.30.2`, Alpine; sh + busybox coreutils + jq 포함). 업스트림 `step-ca` 바이너리에 박힌 `cap_net_bind_service` file-capability xattr 를 빌드 단계에서 제거 — `:9000` 은 비특권 포트라 그 capability 가 불필요하고, 남아 있으면 `securityContext.allowPrivilegeEscalation: false` 와 공존이 안 됨. `merge-ca-config` initContainer(ca.json 머지 — 결정 c/B)도 같은 이미지를 씀(내장 jq 로 ca.json 편집 → 추가 이미지 풀 불필요). 빌드 상세는 `edge/docker/step-ca/Dockerfile` 주석. (버전 추적은 베이스 기준 `0.30.2` — 아래 버전 정책 그대로 적용.)
+**채택**: `ghcr.io/zoklk/step-ca:edge` — 자체 빌드 (베이스 `cr.smallstep.com/smallstep/step-ca:0.30.2`, Alpine; sh + busybox coreutils + jq 포함). 업스트림 `step-ca` 바이너리에 박힌 `cap_net_bind_service` file-capability xattr 를 빌드 단계에서 제거 — `:9000` 은 비특권 포트라 그 capability 가 불필요하고, 남아 있으면 `no_new_privs=1`(= `securityContext.allowPrivilegeEscalation: false`, trivy KSV-0001) 아래서 바이너리 execve 가 EPERM 으로 실패(exit 255)함. `merge-ca-config` initContainer(ca.json 머지 — 결정 c/B)도 같은 이미지를 씀(내장 jq → 추가 이미지 풀 불필요). 자체 GHCR 가 private 이라 step-ca Pod(서브차트 `serviceAccount.create: false` → `default` SA)는 `ghcr-pull` Secret(mapping-generator 환경별 사전작업이 만듦)을 `step-certificates.image.imagePullSecrets` 로 참조. 빌드 상세는 `edge/docker/step-ca/Dockerfile` 주석. (버전 추적은 베이스 기준 `0.30.2` — 아래 버전 정책 그대로 적용.)
 
 step-ca 는 Smallstep 의 오픈소스 PKI 서버. ESP8266 디바이스 발급 (부트스트랩 → 정식 인증서 갱신) 과 K8s 워크로드 인증서 (EMQX, Edge Gateway, Telegraf) 발급을 단일 Intermediate CA 로 통합 운영. 본 프로젝트는 9 대 규모이고 디바이스별 인증서를 컴파일 시점에 주입(디바이스마다 다른 NVS 이미지)하기 어려운 ESP8266 다수를 다루므로 자동 발급/갱신 메커니즘이 필수 (부트스트랩 패턴은 공통 인증서만 컴파일 시점에 굽고 정식 인증서는 첫 부팅 시 발급).
 
@@ -38,6 +38,8 @@ config + CA 자료를 공급하는 모드가 **`inject` / `existingSecrets` / `b
 
 ```yaml
 # edge/helm/step-ca/values.yaml — 엄브렐라. "step-certificates:" 블록은 업스트림 서브차트로 전달.
+# ⚠ 이 블록은 요지 발췌다 — initContainer args / caJson.x5cLeafTemplate 등의 *정확한* 내용은
+#   edge/helm/step-ca/values.yaml 이 정본. 둘이 어긋나면 values.yaml 을 믿을 것.
 step-certificates:
   nameOverride: step-ca           # 위 주석 참조
   kind: StatefulSet
@@ -123,10 +125,14 @@ step-certificates:
           fi
           # B — admin(JWK) provisioner 의 암호화 private key 를 Secret 에서 주입 (없으면 values 인라인 값 그대로)
           if [ -s /admin-jwk/encrypted-key ]; then
-            jq --rawfile ek /admin-jwk/encrypted-key \
-              '(.authority.provisioners[] | select(.type == "JWK" and .name == "admin") | .encryptedKey) = ($ek | rtrimstr("\n"))' \
-              /merged/ca.json > /merged/ca.json.new && mv /merged/ca.json.new /merged/ca.json
+            jq --arg ek "$(cat /admin-jwk/encrypted-key)" \
+              '(.authority.provisioners[] | select(.name == "admin") | .encryptedKey) = $ek' \
+              /merged/ca.json > /merged/ca.json.new
+            mv /merged/ca.json.new /merged/ca.json
           fi
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits:   { cpu: 100m, memory: 64Mi }
       securityContext:
         runAsUser: 1000
         runAsNonRoot: true
@@ -183,7 +189,7 @@ step-certificates:
         "claims": { "defaultTLSCertDuration": "2160h", "disableRenewal": true },
         "options": { "x509": {
           "templateData": { "allowedCNs": [] },
-          "template": "{{- $wl := .allowedCNs -}}{{- if .Subject.CommonName }}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf \"common name %q is not allowed (not in device whitelist)\" .Subject.CommonName) }}{{- end }}{{- end -}}{{- range .SANs }}{{- if not (has .Value $wl) }}{{ fail (printf \"SAN %q is not allowed (not in device whitelist)\" .Value) }}{{- end }}{{- end -}}{ \"subject\": {{ toJson .Subject }}, \"sans\": {{ toJson .SANs }}, \"keyUsage\": [\"digitalSignature\"], \"extKeyUsage\": [\"serverAuth\",\"clientAuth\"] }"
+          "template": "{{- $wl := .allowedCNs -}}{{- if .Subject.CommonName }}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf \"common name %q is not allowed (not in device whitelist)\" .Subject.CommonName) }}{{- end }}{{- end -}}{{- range .SANs }}{{- if ne .Type \"dns\" }}{{ fail (printf \"SAN type %q is not allowed (devices get DNS SANs only)\" .Type) }}{{- end }}{{- if not (has .Value $wl) }}{{ fail (printf \"SAN %q is not allowed (not in device whitelist)\" .Value) }}{{- end }}{{- end -}}{ \"subject\": {{ toJson .Subject }}, \"sans\": {{ toJson .SANs }}, \"keyUsage\": [\"digitalSignature\"], \"extKeyUsage\": [\"serverAuth\",\"clientAuth\"] }"
         } } },
       { "type": "X5C", "name": "device-renewal",
         "roots": "<base64 -w0 of intermediate_ca.crt>",
@@ -196,14 +202,7 @@ step-certificates:
   }
 }
 ```
-(부팅 시 merge initContainer 가: X5C provisioner 들의 `options.x509.templateData.allowedCNs` 의 `[]` →
-`step-ca-whitelist/whitelist.json` 의 CN 목록으로, `admin.encryptedKey` 의 `""` →
-`step-ca-admin-jwk/encrypted-key`(= `admin_jwk.priv.json`)로 overwrite. `template` 문자열(=`{{ fail }}` 가드)
-은 정적 — 차트 `templates/configmap-config.yaml` 에 박혀 변하지 않음. `device-bootstrap.roots`/
-`device-renewal.roots`/`admin.key`/`dnsNames` 는 환경별 → `values-<env>.yaml`. `admin`(JWK)엔 template 이
-없어 화이트리스트 영향 안 받음 — step-issuer 가 이 provisioner 로 K8s 워크로드 cert 발급. `.SANs[].Value`
-는 step-ca SAN 객체 구조에 맞춰 확인 필요. 가독성 위해 template 을 base64 인코딩하거나
-`options.x509.templateFile` 로 빼도 됨. `tls` ciphersuite 블록은 옵션.)
+(부팅 시 merge initContainer 가 `allowedCNs: []` → `step-ca-whitelist`, `admin.encryptedKey: ""` → `step-ca-admin-jwk` 로 overwrite — 위 `## 주요 설정` 의 initContainer 참조. `template` 문자열(`{{ fail }}` 가드)은 정적; `device-bootstrap.roots`/`device-renewal.roots`/`admin.key`/`dnsNames` 는 환경별 → `values-<env>.yaml`. `admin`(JWK)엔 template 이 없어 화이트리스트 영향 없음. 가독성 위해 `template` 을 base64 / `options.x509.templateFile` 로 빼도 되고, `tls` ciphersuite 블록은 옵션.)
 
 ### Service 노출 — ClusterIP + NodePort
 
@@ -223,8 +222,13 @@ hosted Smallstep Certificate Manager 전용 — `ca.json` 의 `provisioners[].po
 → `device-bootstrap`/`device-renewal` X5C provisioner 는 **인증서 템플릿(`options.x509.template`)의
 `{{ fail }}` 가드**로 화이트리스트를 강제한다. 가드는 요청 CN 과 모든 SAN 을
 `options.x509.templateData.allowedCNs`(부팅 시 merge initContainer 가 `step-ca-whitelist` 로 채움)와 대조해,
-하나라도 없으면 `fail` → step-ca 가 발급을 거부한다. 통과하면 템플릿 나머지가 step-ca `DefaultLeafTemplate`
-와 동일한 leaf 필드(subject/sans/keyUsage/extKeyUsage)를 렌더한다. admin(JWK)엔 템플릿이 없어 영향 없다.
+하나라도 없으면 `fail` → step-ca 가 발급을 거부한다. 가드는 **추가로 모든 SAN 타입이 `dns` 인지도 검사** —
+IP/email 등 비-DNS SAN 요청은 발급 거부(디바이스 클라이언트 cert 는 CN[= EMQX `peer_cert_as_username`]만
+쓰므로 SAN 은 DNS 면 충분·임의 SAN 은 위험). **펌웨어 CSR 제약**: CN = `device-XXXXXX`, SAN 은 없거나
+같은 값의 DNS SAN 만 — IP SAN 을 넣으면 발급 실패. (디바이스가 step-ca/EMQX 에 *IP 로 접속*하는 건 별개
+문제 — 그건 *서버* cert SAN 이슈고 위 "Service 노출" 절 참조.) 가드를 통과하면 템플릿 나머지가 step-ca
+`DefaultLeafTemplate` 와 동일한 leaf 필드(subject/sans/keyUsage/extKeyUsage)를 렌더한다. admin(JWK)엔
+템플릿이 없어 영향 없다.
 
 **정적/동적 분리**: 가드 로직(`template` 문자열)은 `step-ca-config` ConfigMap 에 박혀 변하지 않고,
 화이트리스트(데이터)만 `templateData.allowedCNs` 로 주입된다. `step-ca-whitelist` 가 비면 `allowedCNs: []`
@@ -233,38 +237,13 @@ step-ca 는 `template`/`templateData` 를 hot-reload 못 하므로 `step-ca-whit
 annotation 이 rollout 트리거. (CN 명명 규약 `^device-[a-f0-9]{6}$` 자체는 펌웨어 + mapping-generator 검증으로
 강제하는 별개 레이어 — 화이트리스트는 "그 규약을 만족하는 CN 중 실제 등록된 것"의 명시 목록.)
 
-배선은 `## 주요 설정` 의 `step-ca` 엄브렐라 values 참조 — 요약:
+배선 요약 (구체 values·initContainer args 는 `## 주요 설정` 의 `step-ca` 엄브렐라 values 참조):
 
-1. 엄브렐라 차트가 **정적 `ca.json`** (X5C provisioner 들: `options.x509.template` = 정적 `{{ fail }}` 가드,
-   `options.x509.templateData.allowedCNs: []`, + claims; provisioner roots / admin JWK pub key(`caJson.adminJwk.key`)
-   / dnsNames 는 `values-<env>.yaml` 에서 주입; `caJson.adminJwk.encryptedKey` 는 빈 `""` — 아래 (3) 에서
-   채움)을 `step-ca-config` ConfigMap(`templates/configmap-config.yaml`)으로 렌더. 서브차트가 이걸 `config`
-   볼륨으로 `/home/step/config` 에 RO 마운트. (`existingSecrets` 모드라 업스트림 차트는 이 ConfigMap 을 안 만듦.)
-2. mapping-generator(sync-wave -1)가 **디바이스별 CN 목록**을 `step-ca-whitelist` ConfigMap(key
-   `whitelist.json`, 허용 CN 의 JSON 배열)으로 생성.
-3. step-ca StatefulSet 의 `extraInitContainers` `merge-ca-config`(main 컨테이너와 같은 이미지
-   `ghcr.io/zoklk/step-ca:edge` — jq 내장)가 부팅 시 `/template/ca.json`(= `step-ca-config`)을 `ca-merged`
-   emptyDir 로 복사 + `whitelist.json` 이 있으면 각 X5C provisioner 의 `options.x509.templateData.allowedCNs`
-   를 그 목록으로 overwrite(매번 신선한 템플릿을 다시 복사하므로 set/append 구분 불필요 — overwrite); 같은
-   패턴으로 `step-ca-admin-jwk` Secret 의 `encrypted-key`(있으면)를 `provisioners[admin].encryptedKey` 에
-   주입(결정 B — prod 은 이 Secret 필수, dev 은 values 인라인 대안). `ca-whitelist`/`ca-admin-jwk` 볼륨 둘
-   다 `optional: true`(없어도 부팅 OK — whitelist 없으면 `[]` 유지 → device-bootstrap/-renewal 발급 0;
-   admin-jwk 없으면 values 인라인 값 그대로). `extraVolumeMounts` 로 `ca-merged` 를 `/home/step/config` 에
-   덮어 마운트(나중 마운트 우선 → 메인 컨테이너 `command`/`args` override 불필요).
-4. `step-ca-whitelist` 변경 시 step-ca 의 Reloader annotation 이 rollout 트리거 → initContainer 재실행
-   → 재머지 (step-ca 는 `ca.json` `template`/`templateData` hot-reload 불가). rollout 중 약 5~10 초 발급 거부 윈도우.
+- **소스**: 엄브렐라 차트가 정적 `ca.json`(X5C `template` = `{{ fail }}` 가드 + `templateData.allowedCNs: []`; provisioner roots / admin JWK pub key(`caJson.adminJwk.key`) / dnsNames 는 `values-<env>.yaml` 주입)을 `step-ca-config` ConfigMap 으로 렌더 → 서브차트가 `/home/step/config` 에 RO 마운트(`existingSecrets` 모드라 업스트림은 이 ConfigMap 미생성). mapping-generator(sync-wave -1)는 디바이스별 CN 목록을 `step-ca-whitelist` ConfigMap(key `whitelist.json`, 허용 CN JSON 배열)으로 생성.
+- **머지**: 부팅 시 `merge-ca-config` initContainer(main 컨테이너와 같은 이미지 — jq 내장)가 `ca.json` → `ca-merged` emptyDir 복사 후 X5C provisioner 들의 `templateData.allowedCNs` ← `step-ca-whitelist`, `provisioners[admin].encryptedKey` ← `step-ca-admin-jwk`(결정 B) 로 overwrite (둘 다 `optional` — 없으면 `[]`/values 인라인 값 유지 → device-bootstrap/-renewal 발급 0). `extraVolumeMounts` 가 `ca-merged` 를 `/home/step/config` 에 덮어 마운트(메인 `command`/`args` override 불필요).
+- **갱신**: `step-ca-whitelist` 변경 → Reloader annotation 이 rollout → initContainer 재머지(step-ca 는 `ca.json` `template`/`templateData` hot-reload 불가; rollout 중 약 5~10 초 발급 거부 윈도우).
 
-✅ **확인 완료** (step-certificates 1.30.x): `extraInitContainers` / `extraVolumes` / `extraVolumeMounts`
-/ `extraContainers` / `command` / `args` 전부 노출 → 머지 initContainer 는 순수 values 로 가능. 메인
-컨테이너는 `command: ["/usr/local/bin/step-ca"]`, `args` 끝이 `/home/step/config/ca.json`. **남은 비용은
-하나**: 차트가 StatefulSet metadata annotation 훅을 안 노출 → `step-ca-whitelist` 용 Reloader annotation
-(`configmap.reloader.stakater.com/reload: step-ca-whitelist`)은 엄브렐라 차트의 post-render(kustomize)
-strategic-merge patch 로 주입(`kustomization.yaml` + `post-render.sh`; 같은 patch 로
-`automountServiceAccountToken: false` 도 부여 — step-ca 는 런타임에 K8s API 접근 불필요). 대안 B
-(mapping-generator 가 `kubectl rollout restart statefulset/step-ca`)는 기각 — 메커니즘 비대칭(EMQX 는
-Reloader)·mapping-generator RBAC 확대(`statefulsets patch`)·whitelist 변경감지 로직 필요·
-`smoke-test-step-ca.sh #4b` 의 annotation hard-check 위반. 자동화 가치는 동일: `step-ca-whitelist` 만
-mapping-generator 가 갱신하면 `emqx-acl` / `telegraf-lookup` 과 단일 진실 공급원에서 동기화됨.
+step-certificates 1.30.x 가 `extraInitContainers` / `extraVolumes` / `extraVolumeMounts` / `command` / `args` 를 노출하므로 머지 initContainer 는 순수 values 로 구성된다(메인 컨테이너 `command`/`args` override 불필요 — `ca-merged` over-mount). 단 차트가 StatefulSet metadata annotation 훅은 안 노출 → `step-ca-whitelist` 용 Reloader annotation 과 `automountServiceAccountToken: false`(런타임 K8s API 접근 불필요)는 엄브렐라 차트의 post-render(kustomize) strategic-merge patch 로 주입(`kustomization.yaml` + `post-render.sh`). 대안 B(mapping-generator 가 `kubectl rollout restart statefulset/step-ca` 직접 호출)는 메커니즘 비대칭(EMQX 는 Reloader)·RBAC 확대(`statefulsets patch`)·whitelist 변경감지 로직 필요·`smoke-test-step-ca.sh #4b` annotation hard-check 위반으로 기각 — `step-ca-whitelist` 만 mapping-generator 가 갱신하면 `emqx-acl`/`telegraf-lookup` 과 단일 진실 공급원에서 동기화된다.
 
 > ⚠️  ArgoCD 의 `helm` 소스는 post-renderer 를 안 돌림 → prod 가 ArgoCD 로 sync 될 땐 위 Reloader
 > annotation 이 안 붙는다(하네스 `/deploy` 에선 붙음). 본 phase 는 그 갭을 수용 — prod 에서 whitelist
@@ -407,14 +386,13 @@ kubectl create secret tls step-ca-smoke-bootstrap -n gikview --cert=smoke-bootst
 shred -u smoke-bootstrap.crt smoke-bootstrap.key
 ```
 
-- dev 전용: prod 엔 안 만든다 — prod 는 ArgoCD 배포이고 스모크를 안 돌린다. Secret/`step` CLI 중
-  하나라도 없으면 #10 은 `note:` self-skip (기본 스모크는 의존성-free).
-- 부트스트랩 신원의 CN(`smoke-bootstrap`)은 화이트리스트에 없어도 된다 — cert-template `{{ fail }}` 가드는
-  X5C 토큰 서명자 CN 이 아니라 *요청된 device cert* 의 CN/SAN(#10(a) 가 `step-ca-whitelist` 첫 항목을 뽑아 씀)만 검사.
-- 8760h 만료 시 같은 명령으로 재발급 + Secret 갱신. trust 앵커가 아니라 내부 테스트 크리덴셜이라
-  로테이션 영향 범위는 스모크 한정.
-- #10(a) 는 `step-ca-whitelist` 첫 CN 으로 진짜 인증서를 발급한다 — `disableRenewal: true` + 매번
-  새 serial 이라 무해하지만, 발급 로그 노이즈 싫으면 dev whitelist 에 전용 테스트 CN 을 박아둔다.
+- dev 전용 — prod 엔 안 만든다(ArgoCD 배포, 스모크 미실행). Secret/`step` CLI 둘 중 하나라도 없으면
+  #10 은 `note:` self-skip. 8760h 만료 시 같은 명령으로 재발급 + Secret 갱신 (trust 앵커가 아니라 내부
+  테스트 크리덴셜이라 로테이션 영향 범위는 스모크 한정).
+- 신원 CN(`smoke-bootstrap`)은 화이트리스트에 없어도 됨 — `{{ fail }}` 가드는 X5C 토큰 서명자 CN 이 아니라
+  *요청된 device cert* 의 CN/SAN(#10(a) 가 `step-ca-whitelist` 첫 항목 사용)만 검사. #10(a) 가 그 CN 으로
+  진짜 인증서를 발급하지만 `disableRenewal: true` + 새 serial 이라 무해 (발급 로그 노이즈 싫으면 dev
+  whitelist 에 전용 테스트 CN).
 
 ## 알려진 주의사항
 
@@ -426,9 +404,9 @@ shred -u smoke-bootstrap.crt smoke-bootstrap.key
 
 - **X5C root 검증 실패 시 `provisioner not found`**: X5C provisioner 의 `roots` 가 base64 인코딩된 PEM 이어야 함. 줄바꿈 그대로 인코딩 시 yaml 파싱 오류. `cat ca.crt | base64 -w 0` 로 single-line 변환.
 
-- **provisioner-단위 policy 미지원 (OSS step-ca)**: 자체 호스팅 step-ca 는 authority-레벨 policy 만 가능 — `ca.json` 의 `provisioners[].policy.…` 는 조용히 무시된다(provisioner config 구조체에 policy 필드 없음; hosted Smallstep Certificate Manager 전용). provisioner 별 발급 제한(여기선 device CN 화이트리스트)은 cert-template 의 `{{ fail }}` 가드 + `options.x509.templateData` 로 구현(결정 c, 위 Policy 절). authority-레벨 policy 는 admin(JWK) provisioner 까지 묶여서 못 씀. → `provisioners[].policy.…` 는 쓰지 말 것.
+- **`provisioners[].policy.…` 가 조용히 무시됨 (OSS step-ca)**: 증상 — provisioner-단위 policy 블록이 적용 안 됨. 원인 — OSS(자체 호스팅) step-ca 는 authority-레벨 policy 만 지원(provisioner policy 는 hosted Smallstep Certificate Manager 전용), authority-레벨 policy 는 admin(JWK)까지 묶여 부적합. 해결 — provisioner별 발급 제한은 cert-template `{{ fail }}` 가드 + `options.x509.templateData` 로 구현(위 "Policy" 절); `provisioners[].policy.…` 는 쓰지 말 것.
 
-- **template/templateData 변경 시 rollout restart 필수**: `ca.json` 의 `options.x509.template`/`templateData`(및 provisioner) 변경은 hot reload 안 됨. `step-ca-whitelist` ConfigMap 갱신 → Reloader 가 rollout 트리거 → `merge-ca-config` initContainer 가 정적 ca.json + whitelist 재머지 (결정 c, 위 Policy 절). rollout 중 약 5~10 초 발급 거부 윈도우 발생.
+- **`step-ca-whitelist` 갱신해도 발급 정책이 안 바뀜**: 증상 — ConfigMap 만 바꿔도 step-ca 가 옛 화이트리스트로 발급. 원인 — `ca.json` 의 `options.x509.template`/`templateData`(및 provisioner) 는 hot-reload 안 됨. 해결 — Reloader annotation 이 rollout 트리거 → `merge-ca-config` initContainer 가 정적 ca.json + whitelist 재머지(위 "Policy" 절); rollout 중 약 5~10 초 발급 거부 윈도우.
 
 - **`disableRenewal: true` 인 provisioner 로 발급된 인증서**: `/1.0/renew` 호출 시 403. 부트스트랩 인증서는 갱신 불가가 의도된 동작. 디바이스는 정식 인증서 받은 후 `device-renewal` provisioner 로 갱신해야 함.
 

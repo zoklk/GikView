@@ -1,8 +1,8 @@
 # Phase: security
 
-본 phase 는 ESP8266 디바이스 ↔ EMQX 외부 mTLS 와 EMQX ↔ 내부 워크로드 (Edge Gateway, Telegraf) mTLS 의 PKI 인프라를 구축. step-ca 가 Intermediate CA 로 동작하고 cert-manager + step-issuer 로 K8s 워크로드 인증서를 자동 발급/갱신. 부트스트랩 인증서 + MAC 화이트리스트 패턴으로 ESP8266 정식 인증서 자동 발급. `device-room-mapping` ConfigMap 을 단일 진실 공급원으로 Mapping Generator CronJob 이 EMQX ACL(`emqx-acl`), step-ca CN 화이트리스트(`step-ca-whitelist`), device→room lookup(`telegraf-lookup`, Telegraf 용) 세 ConfigMap 을 동시 자동 생성. Reloader 가 Secret/ConfigMap 변경 시 의존 워크로드 rollout 자동 트리거.
+본 phase 는 PKI 인프라를 구축한다 — step-ca 가 Intermediate CA 로 동작하고, cert-manager + step-issuer 가 K8s 워크로드(EMQX·Edge Gateway·Telegraf) 인증서를 자동 발급/갱신한다. ESP8266 디바이스는 부트스트랩 인증서 + CN 화이트리스트 패턴으로 정식 인증서를 자동 발급받는다(↔ EMQX 외부 mTLS). `device-room-mapping` ConfigMap 을 단일 진실 공급원으로, Mapping Generator CronJob 이 EMQX ACL(`emqx-acl`)·step-ca CN 화이트리스트(`step-ca-whitelist`)·device→room lookup(`telegraf-lookup`) 세 ConfigMap 을 동시 생성한다. Reloader 가 Secret/ConfigMap 변경 시 의존 워크로드 rollout 을 트리거한다.
 
-본 phase 는 messaging (EMQX 배포 완료) 의존. 본 phase 완료 후 EMQX 재배포 (mTLS listener 전환), Edge Gateway/Telegraf 배포가 가능.
+본 phase 는 messaging (EMQX 배포 완료) 에 의존. 완료 후 EMQX 재배포 (mTLS listener 전환) 와 Edge Gateway/Telegraf 배포가 가능하다.
 
 ## Service: cert-manager
 
@@ -46,25 +46,21 @@
 **node_category**: [security]
 **references**: [context/knowledge/step-ca.md]
 
-- step-ca 단일 Pod non-HA 배포. `security` 카테고리 노드 고정 (prod 는 e-s1 = control-plane, dev 는 alpha-w1; `config/harness.yaml` 의 `node_selectors.security`).
-- 데이터 영속화: local PV (badger DB, 발급 이력/revocation 데이터). `reclaimPolicy: Retain`.
-- **OS 사전 작업** (사람 1 회, 운영환경): `chown 1000:1000 <pv-path>/` (badger DB hostPath).
-- **네트워크 사전 작업** (사람 1 회, 운영환경): 공유기 포트포워딩 `<외부포트>` → `<security 노드>:<NodePort>` (prod `e-s1:31900`, dev `alpha-w1:<dev nodePort>`) — 디바이스가 학내망에서 step-ca 도달; messaging.md 의 EMQX 포트포워딩과 동일 운영 패턴.
-- **Root CA + Intermediate CA + 부트스트랩 CA 사전 생성** (사람 1 회, 오프라인):
-  - Root CA (ECDSA P-256, 10y) 오프라인 생성, 서명 후 키는 클러스터 외부 안전 보관.
-  - Intermediate CA (ECDSA P-256, 5y) Root 로 서명. K8s Secret 으로 클러스터 주입.
-  - 부트스트랩 CA (ECDSA P-256, 5y) Root 로 별도 서명. K8s Secret 으로 클러스터 주입.
-  - 인증서/키 Secret: `step-ca-certs`(root_ca.crt, intermediate_ca.crt), `step-ca-secrets`(intermediate_ca_key), `step-ca-ca-password`(password). 차트가 `{fullname}-*` 로 하드 참조하며 `nameOverride: step-ca` 라 `{fullname}=step-ca`. (`step-ca-config`(ca.json)은 운영자가 안 만든다 — 엄브렐라 차트가 렌더.)
-- **Provisioner 구성** (엄브렐라 `step-ca` 차트가 렌더하는 `step-ca-config` ConfigMap = `values.yaml` 에서 조립한 정적 `ca.json` — `existingSecrets` 모드라 업스트림 차트가 ca.json ConfigMap 을 안 만들어주므로 엄브렐라가 렌더; 디바이스별 CN 목록은 아래 참고):
-  - `device-bootstrap` (X5C): 부트스트랩 CA 를 root 로. CN 명명 규약 `^device-[a-f0-9]{6}$` (펌웨어 + mapping-generator 검증으로 강제; `ca.json` 의 X5C cert-template `templateData.allowedCNs` 는 정규식이 아니라 등록된 CN 명시 목록 — 아래 참고). `disableRenewal: true`. 정식 인증서 발급 전용.
-  - `device-renewal` (X5C): Intermediate CA 를 root 로. 동일 — `templateData.allowedCNs` 명시 목록. 정식 인증서 갱신 전용.
-  - `admin` (JWK): 운영자 / K8s 워크로드 발급용. step-issuer 연결.
-  - **device CN 화이트리스트 강제 — OSS step-ca 는 provisioner-단위 policy 미지원(`ca.json` 의 `provisioners[].policy.…` 는 조용히 무시됨; hosted Smallstep Certificate Manager 전용)이고 authority-레벨 policy 는 admin(JWK)까지 묶이므로 부적합 → X5C provisioner 의 인증서 템플릿(`options.x509.template`)에 `{{ fail }}` 가드를 박아 요청 CN/SAN 이 `options.x509.templateData.allowedCNs` 에 없으면 발급 거부, 통과하면 `DefaultLeafTemplate` 와 동일 leaf 필드 렌더. 엄브렐라가 렌더하는 정적 `ca.json` 엔 `options.x509.template`(가드, 정적) + `options.x509.templateData.allowedCNs: []` + claims 만; 실제 CN 목록은 merge initContainer 가 `step-ca-whitelist` ConfigMap(key `whitelist.json`)으로 overwrite (결정 (c)). step-ca StatefulSet 에 `extraInitContainers`/`extraVolumes`/`extraVolumeMounts`(step-certificates 1.30.x native 훅)로 머지 initContainer(main 컨테이너와 같은 이미지 `ghcr.io/zoklk/step-ca:edge` — jq 내장) + `ca-merged` emptyDir 추가; `ca-whitelist` 볼륨 `optional: true`(없으면 `[]` → fail-closed); `inject.enabled: false`, `bootstrap.{enabled,configmaps,secrets}: false`. 상세: `context/knowledge/step-ca.md` Policy 절.**
-  - **부트스트랩 경로 폐기/회전**: CRL/OCSP 미도입(결정 7번)이므로 부트스트랩 크리덴셜 폐기는 Bootstrap CA 회전으로 — 프로비저닝 완료 후 `device-bootstrap` provisioner 제거 또는 `roots` 비우기, 유출 시 새 Bootstrap CA 발급 + `device-bootstrap.roots` 교체 + 재플래시(운영 체인 영향 0). 결정 13번, `context/knowledge/step-ca.md`.
+- step-ca 단일 Pod non-HA 배포. `security` 카테고리 노드 고정 (prod e-s1, dev alpha-w1 — `config/harness.yaml` 의 `node_selectors.security`).
+- 데이터 영속화: local PV (badger DB, 발급 이력). `reclaimPolicy: Retain`.
+- **OS 사전 작업** (사람 1 회, 환경마다): badger DB hostPath `chown 1000:1000` (경로는 아래 "환경별 분리" 표 / `context/knowledge/step-ca.md`).
+- **네트워크 사전 작업** (사람 1 회, 운영환경): 공유기 포트포워딩 `<외부포트>` → `<security 노드>:31900` — 디바이스가 학내망에서 step-ca 도달 (messaging.md 의 EMQX 포트포워딩과 동일 운영 패턴).
+- **CA 자료 사전 생성** (사람 1 회, 오프라인): Root CA (ECDSA P-256, 10y, 키는 클러스터 외부 안전 보관) · Intermediate CA (P-256, 5y) · 부트스트랩 CA (P-256, 5y, 정식 trust 와 분리). K8s Secret 주입: `step-ca-certs` / `step-ca-secrets` / `step-ca-ca-password` / `step-ca-admin-jwk` (`step-ca-config` = ca.json 은 운영자가 안 만듦 — 엄브렐라 차트가 렌더). 절차·Secret 키 구조·`ca.json` 조립 방식은 `context/knowledge/step-ca.md`.
+- **provisioner**:
+  - `device-bootstrap` (X5C, root = 부트스트랩 CA, `disableRenewal: true`, `defaultTLSCertDuration: 2160h`) — 정식 인증서 발급 전용.
+  - `device-renewal` (X5C, root = Intermediate, `allowRenewalAfterExpiry: false`, `defaultTLSCertDuration: 2160h`) — 정식 인증서 갱신 전용.
+  - `admin` (JWK) — step-issuer 연결, K8s 워크로드 발급용.
+  - device CN 명명 규약 `^device-[a-f0-9]{6}$`. X5C provisioner 가 발급 가능한 CN 은 `step-ca-whitelist` ConfigMap (mapping-generator 가 생성) 으로 제한 + device leaf 템플릿은 **DNS 타입 SAN 만** 허용 (비-DNS SAN 요청 거부) — 강제 메커니즘·부팅 머지 흐름은 `context/knowledge/step-ca.md` "Policy" 절.
+  - 부트스트랩 경로 폐기/회전은 Bootstrap CA 통째 교체로 (CRL/OCSP 미도입 — docs ADR 7·13번; `context/knowledge/step-ca.md`).
 - Argo CD sync-wave: `0`.
+- **디바이스-facing 노출**: step-ca 서버 인증서 SAN (= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입) 은 DNS-only — ESP8266 BearSSL 이 IP SAN 을 검증하지 않아 노드 IP 를 넣어도 의미 없음. 운영 trust 전략은 후속 ADR. end-to-end 동작은 ESP8266 펌웨어 클라이언트 (아래 후속 작업) 후 성립 — 본 phase 검증 범위는 K8s 워크로드 발급 경로 (cert-manager + step-issuer → step-ca).
 - **Port**:
-  - `https: 9000` — step-ca REST API (`/1.0/sign`, `/1.0/renew`). ClusterIP (step-issuer/cert-manager 내부용) **+ NodePort 노출** (`step-ca-nodeport` 서비스, `security` 카테고리 노드 = prod e-s1 / dev alpha-w1, 고정 nodePort 예: `31900`). `externalTrafficPolicy: Local` 로 step-ca 가 디바이스 실제 IP 를 로그/정책에서 보게 함. 외부 포트 매핑은 messaging.md 패턴(공유기 포트포워딩).
-- **디바이스-facing 노출**: `step-ca-nodeport` 서비스 추가 + step-ca 서버 인증서 SAN(= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입). ESP8266 BearSSL 이 IP SAN 을 검증하지 않으므로 dev/prod 모두 DNS-only(노드 IP 미포함)로 두고, 운영 trust 전략(DNS 명 사용 또는 `setInsecure`)은 후속 ADR. NodePort + SAN 은 본 phase 범위지만, **end-to-end 동작은 ESP8266 펌웨어 클라이언트(아래 후속 작업)가 있어야 성립** — 본 phase 완료 시점에 동작 검증 가능한 것은 K8s 워크로드 인증서 발급 경로(cert-manager + step-issuer → step-ca)이고, 디바이스 부트스트랩 흐름은 펌웨어 작업 후.
+  - `https: 9000` — step-ca REST API (`/1.0/sign`, `/1.0/renew`). ClusterIP (step-issuer/cert-manager 내부용) + NodePort `step-ca-nodeport` (고정 `nodePort: 31900`, `externalTrafficPolicy: Local`, `security` 노드). 외부 포트 매핑은 messaging.md 패턴 (공유기 포트포워딩).
 - **리소스**:
   - CPU: `20m` / `200m`
   - Memory: `64Mi` / `256Mi`
@@ -86,7 +82,7 @@
 - annotation 기반 명시적 매칭 (`secret.reloader.stakater.com/reload`, `configmap.reloader.stakater.com/reload`). auto-reload 미사용.
 - **본 phase 적용 대상은 EMQX + step-ca**:
   - EMQX — `secret.reloader.stakater.com/reload: emqx-server-tls` (서버 인증서 갱신), `configmap.reloader.stakater.com/reload: emqx-acl` (ACL 변경).
-  - step-ca — `configmap.reloader.stakater.com/reload: step-ca-whitelist` (CN 화이트리스트(X5C cert-template 의 `templateData.allowedCNs`) 변경 시 rollout. step-ca 는 ca.json template/templateData hot-reload 안 되므로 restart 필요).
+  - step-ca — `configmap.reloader.stakater.com/reload: step-ca-whitelist` (CN 화이트리스트 변경 시 rollout — step-ca 는 ca.json template/templateData hot-reload 안 됨; 메커니즘은 `context/knowledge/step-ca.md` "Policy" 절).
   - `telegraf-lookup` → Telegraf, Edge Gateway client cert 등의 Reloader annotation 은 해당 워크로드를 배포하는 후속 phase 에서 추가 (security 결정 8 번은 최종 상태 기준 — 본 phase 는 그 부분집합).
 - Argo CD sync-wave: `-3` (cert-manager 와 병행). 다른 컴포넌트가 reloader annotation 을 달기 전에 떠 있어야 첫 변경 즉시 감지.
 - **리소스**:
@@ -96,13 +92,18 @@
 ## Service: mapping-generator
 
 **technology**: 자체 코드 (Go CronJob)
-**dependency**: []  <!-- 결정 (c) 에선 mapping-generator 가 step-ca API 를 안 씀 — ConfigMap 만 읽고 씀. 배포 순서는 sync-wave 로만 보장. -->
+**dependency**: [none]
 **artifacts**: helm, docker
 **node_category**: [security]
 **references**: [none]
 
-- 자체 코드. Helm chart + Docker 이미지 빌드 — 하네스가 `conventions.build_platforms`(현재 `linux/amd64`+`linux/arm64`)로 `docker buildx build --push` 단일 명령으로 multi-arch manifest list 를 빌드/푸시. Dockerfile 은 두 arch 모두에서 깨끗이 빌드돼야 함(`TARGETARCH` 분기 없이 arch 별 바이너리 다운로드 금지 — buildx 가 `TARGETPLATFORM`/`TARGETARCH`/`TARGETOS` build arg 제공). 빌드 호스트 사전 셋업은 아래 "이미지 레지스트리 사전 작업" 참고.
-- **단일 진실 공급원**: `device-room-mapping` ConfigMap (사람이 git commit 으로 관리). data 키 = `mapping.csv`, 헤더 행 없음, 한 줄 = `device_id,room_id`. room_id 규약 = `room-{건물 a|b}-{층}-{호실 idx}` (예 `room-a-3-2`; 스모크 엔트리 `room-a-9-9` 는 의도적으로 비실재 슬롯). 이 CM 은 mapping-generator helm chart 의 templates 에서 `.Values.deviceRoomMapping` 맵을 렌더 — 별도 수동 ConfigMap 이 아님. `values-dev.yaml`/`values-prod.yaml` 양쪽에 스모크 엔트리 `deviceRoomMapping: { device-aaaaaa: room-a-9-9 }` (실제 디바이스 추가 시 줄 추가). mapping-generator 는 각 `device_id` 를 `^device-[a-f0-9]{6}$` 로 검증한 항목만 출력(불일치는 skip + 로그 — 오타가 `step-ca-whitelist` 로 새는 거 방지). Edge Gateway 등은 이 SoT 를 직접 참조 — mapping-generator 가 따로 만들어주는 CM 은 없음.
+- 자체 코드 — Helm chart + multi-arch Docker 이미지 (하네스가 `conventions.build_platforms` = `linux/amd64`+`linux/arm64` 로 `docker buildx build --push` 단일 명령으로 manifest list 빌드/푸시). 빌드 호스트 사전 셋업은 Kubeharness README "사전 준비 > multi-arch 이미지 빌드".
+- **단일 진실 공급원**: `device-room-mapping` ConfigMap (사람이 git commit 으로 관리).
+  - data 키 = `mapping.csv`, 헤더 행 없음, 한 줄 = `device_id,room_id`.
+  - room_id 규약 = `room-{건물 a|b}-{층}-{호실 idx}` (예 `room-a-3-2`; 스모크 엔트리 `room-a-9-9` 는 의도적으로 비실재 슬롯).
+  - 별도 수동 ConfigMap 이 아니라 mapping-generator helm chart 의 templates 가 `.Values.deviceRoomMapping` 맵을 렌더 — `values-dev.yaml`/`values-prod.yaml` 양쪽에 스모크 엔트리 `deviceRoomMapping: { device-aaaaaa: room-a-9-9 }` (실제 디바이스 추가 시 줄 추가).
+  - mapping-generator 는 각 `device_id` 를 `^device-[a-f0-9]{6}$` 로 검증한 항목만 출력 (불일치는 skip + 로그 — 오타가 `step-ca-whitelist` 로 새는 거 방지).
+  - Edge Gateway 등은 이 SoT 를 직접 참조 — mapping-generator 가 따로 만들어주는 CM 은 없음.
 - **출력 ConfigMap 3 종 동시 자동 생성**:
   - `emqx-acl`: EMQX file authorizer 가 마운트. Erlang tuple 형식. CN (= peer_cert_as_username) 기반 publish/subscribe 권한.
 ```erlang
@@ -115,16 +116,14 @@
     %% 그 외 거부
     {deny, all}.
 ```
-  - `step-ca-whitelist`: 허용 device CN 의 JSON 배열 (key `whitelist.json`). step-ca StatefulSet 의 merge initContainer(jq — main 컨테이너와 같은 이미지)가 부팅 시 정적 `ca.json`(엄브렐라가 `step-ca-config` ConfigMap 으로 렌더)의 X5C provisioner `options.x509.templateData.allowedCNs` 에 overwrite. step-ca 의 Reloader annotation(post-render 로 부착)이 이 ConfigMap 에 달려 변경 시 rollout.
+  - `step-ca-whitelist` (key `whitelist.json` = 허용 device CN JSON 배열): step-ca 가 부팅 시 X5C provisioner `options.x509.templateData.allowedCNs` 에 머지 — 강제·머지 메커니즘은 `context/knowledge/step-ca.md` "Policy" 절.
   - `telegraf-lookup`: Telegraf processor.starlark 또는 processor.lookup 이 참조. device_id → room_id 매핑 csv. (Telegraf 는 후속 phase 배포 — 본 phase 에선 ConfigMap 만 미리 생성됨.)
-- **device CN 화이트리스트 강제 방식 — (c) X5C cert-template `{{ fail }}` 가드 + initContainer 머지로 결정**: `device-bootstrap`/`device-renewal` X5C provisioner 가 발급 가능한 device CN 을 `step-ca-whitelist` ConfigMap(mapping-generator 가 sync-wave -1 에 생성, key `whitelist.json` = 허용 CN JSON 배열)으로 제한. **메커니즘**: ~~provisioner-단위 `policy.x509.allow.cn`~~ → provisioner-단위 `options.x509.template`(정적, `{{ fail }}` 가드 포함) + `options.x509.templateData.allowedCNs`(동적, 화이트리스트). **이유**: OSS(자체 호스팅) step-ca 는 policy 를 authority 레벨에서만 지원 — provisioner-단위 policy 는 hosted Smallstep Certificate Manager 전용이라 `ca.json` 의 `provisioners[].policy.…` 는 조용히 무시되고, authority-레벨 policy 는 admin(JWK, step-issuer 가 K8s 워크로드 cert 발급에 씀)까지 묶여 부적합 → cert-template `{{ fail }}` 로 동등 효과(provisioner 단위, admin 영향 없음). **부팅 흐름**: 엄브렐라 차트가 정적 `ca.json`(template 문자열 포함, `templateData.allowedCNs: []`)을 `step-ca-config` ConfigMap 으로 렌더 → `merge-ca-config` initContainer(main 컨테이너와 같은 이미지 `ghcr.io/zoklk/step-ca:edge`, jq 내장)가 `step-ca-whitelist` 존재 시 각 X5C provisioner 의 `.options.x509.templateData.allowedCNs` 를 화이트리스트로 overwrite → step-ca 가 머지된 `ca.json` 으로 기동. step-ca 는 template/templateData 를 hot-reload 못 하므로 `step-ca-whitelist` 변경 시 Reloader annotation 이 rollout 트리거(약 5~10 초 발급 거부 윈도우; post-render strategic-merge patch 로 부착 — 위 "rollout trigger" 불릿). **fail-closed**: `step-ca-whitelist` 가 아직 없으면 `allowedCNs: []` → 모든 device cert 거부(실제로는 mapping-generator 가 항상 먼저 생성). `extraVolumeMounts` 로 `ca-merged` emptyDir 를 `/home/step/config` 에 over-mount(메인 command/args override 불필요); `inject.enabled: false`, `bootstrap.{enabled,configmaps,secrets}: false`. ✅ step-certificates 1.30.x 가 `extraInitContainers`/`extraVolumes`/`extraVolumeMounts`/`command`/`args` 노출 → 순수 values 로 가능. **검증**: `smoke-test-step-ca.sh` #4b(머지된 ca.json 에 화이트리스트 CN 반영) + #10(a)(등록 CN 발급 성공) + #10(b)(미등록 `device-ffffff` 거부). 상세: `context/knowledge/step-ca.md` Policy 절.
 - **스케줄**: CronJob `*/15 * * * *` (15 분 주기). 디바이스 추가 빈도 낮아 충분.
-- **rollout trigger**: ConfigMap 갱신 후 Reloader 가 의존 워크로드 rollout 자동 트리거 (workload annotation 으로). 본 phase 범위: EMQX(`emqx-acl`), step-ca(`step-ca-whitelist`). Telegraf(`telegraf-lookup`) 는 Telegraf 배포 phase 부터. — step-ca StatefulSet 의 Reloader annotation 은 업스트림 step-certificates 차트가 워크로드 metadata annotation 훅을 안 노출 → 엄브렐라 차트의 post-render(kustomize) strategic-merge patch 로 주입(`kustomization.yaml` + patch). 대안 B(mapping-generator 가 `kubectl rollout restart statefulset/step-ca` 직접 호출)는 기각 — 메커니즘 비대칭(EMQX 는 Reloader)·mapping-generator RBAC 확대(`statefulsets patch`)·whitelist 변경감지 로직 필요(없으면 15 분마다 무의미 restart)·`smoke-test-step-ca.sh #4b` 의 annotation hard-check 위반.
+- **rollout trigger**: ConfigMap 갱신 → Reloader 가 의존 워크로드 rollout 트리거 (본 phase: EMQX `emqx-acl`, step-ca `step-ca-whitelist`; Telegraf `telegraf-lookup` 은 후속 phase 부터). step-ca StatefulSet 의 Reloader annotation 은 엄브렐라 차트의 post-render strategic-merge patch 로 부착 — 상세·기각 대안은 `context/knowledge/step-ca.md`.
 - **권한**: ConfigMap get/list/update/create 가능한 ServiceAccount (init Job 과 CronJob 공용).
-- **Argo CD sync-wave: `-1`** (step-ca·emqx 보다 먼저). 차트가 `device-room-mapping` ConfigMap + CronJob(`*/15 * * * *`) + 일회성 init Job(배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC(ConfigMap get/list/create/update SA, init Job·CronJob 공용) 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca(wave 0) initContainer / emqx(wave 1) ACL 마운트 시 이미 존재.
-- 이미지 레지스트리 사전 작업 (사람 1회, 환경마다): GHCR 패키지를 private 유지 → docker login ghcr.io (push: write:packages PAT) + gikview 네임스페이스에 ghcr-pull Secret
-  (kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io ..., read:packages 전용 PAT) 사전 생성. 차트가 ServiceAccount 의 imagePullSecrets 로 참조.
-- multi-arch buildx 빌드 호스트 사전 작업 (사람 1회, `/deploy` 를 돌리는 머신마다): `docker buildx create --name multiarch --driver docker-container --bootstrap --use` + `docker run --privileged --rm tonistiigi/binfmt --install all` (기본 `docker` 드라이버 buildx 로는 multi-platform 빌드 불가; Docker Desktop 이면 둘 다 번들). `docker login ghcr.io` 는 buildx `--push` 가 빌드 *전* 에 인증이 필요하므로 이 시점에 돼 있어야 함. 상세: Kubeharness README "사전 준비 > multi-arch 이미지 빌드".
+- **Argo CD sync-wave: `-1`** (step-ca·emqx 보다 먼저). 차트가 `device-room-mapping` ConfigMap + CronJob (`*/15 * * * *`) + 일회성 init Job (배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca (wave 0) initContainer / emqx (wave 1) ACL 마운트 시 이미 존재.
+- **이미지 레지스트리 사전 작업** (사람 1 회, 환경마다): GHCR 패키지 private 유지 → `docker login ghcr.io` (push: `write:packages` PAT) + gikview 네임스페이스에 `ghcr-pull` Secret (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io …`, `read:packages` 전용 PAT) 사전 생성. 차트가 ServiceAccount 의 imagePullSecrets 로 참조.
+- **multi-arch buildx 빌드 호스트 사전 작업** (사람 1 회, `/deploy` 머신마다): `docker buildx create --name multiarch --driver docker-container --bootstrap --use` + `docker run --privileged --rm tonistiigi/binfmt --install all`. `docker login ghcr.io` 도 이 시점에 돼 있어야 함 (`buildx --push` 가 빌드 전 인증 필요). 상세: Kubeharness README "사전 준비 > multi-arch 이미지 빌드".
 - **리소스**:
   - CPU: `50m` / `200m`
   - Memory: `64Mi` / `128Mi`
@@ -141,11 +140,11 @@
 - **listener 전환**:
   - `mqtts: 8883` mTLS listener 활성화 (`verify = verify_peer`, `fail_if_no_peer_cert = true`).
   - `peer_cert_as_username = cn` 설정으로 클라이언트 인증서 CN 을 EMQX username 으로 매핑. ACL 규칙은 이 username 기준 매칭.
-  - 기존 평문 `mqtt: 1883` listener 비활성화 (helm values 에서 enable: false). NodePort 도 mqtts 만 노출 (외부 포트 매핑은 phase 6 의 messaging.md 유지: e-s2:8883, e-s3:8884 → 노드 내부 :8883 NodePort).
+  - 기존 평문 `mqtt: 1883` listener 비활성화 (helm values 에서 enable: false). NodePort 도 mqtts 만 노출 — NodePort 번호는 `31884` (messaging.md / `context/knowledge/emqx.md`). 공유기: 외부포트 8883 → e-s2:31884, 8884 → e-s3:31884.
 - **서버 인증서**: Certificate 리소스 추가.
   - commonName: `emqx.gikview.svc.cluster.local`
   - dnsNames: `emqx`, `emqx.gikview.svc.cluster.local`, `emqx-headless.gikview.svc.cluster.local`, `*.emqx-headless.gikview.svc.cluster.local`, `emqx-nodeport.gikview.svc.cluster.local`
-  - ipAddresses: `192.168.0.102`, `192.168.0.103` (prod), dev 는 환경별 분리
+  - ipAddresses: `192.168.0.102`, `192.168.0.103` (prod) — dev 는 환경별 분리. 이 항목이 mTLS 서버 cert SAN IP 의 정본 (knowledge/emqx.md·cert-manager.md 는 이 값을 참조).
   - duration: `2160h`, renewBefore: `720h`
   - issuerRef: StepClusterIssuer
   - secretName: `emqx-server-tls`
@@ -153,12 +152,11 @@
   - `/etc/emqx/acl/acl.conf` 경로로 ConfigMap volumeMount.
   - authorization sources 의 첫 entry 로 `{type = file, path = "/etc/emqx/acl/acl.conf"}` 등록.
   - `no_match = deny` 로 미매칭 시 거부.
-- **CA bundle 마운트 (= listener `ssl_options.cacertfile`)**: step-ca **Root CA** 를 클라이언트 인증서 검증 trust anchor 로 — cert-manager 가 생성한 `emqx-server-tls` Secret 의 `ca.crt`(= StepClusterIssuer `caBundle` = Root) 를 그대로 마운트. **Intermediate-only 는 EMQX 5.8.6 의 `partial_chain` 부재로 미채택**(security 결정 12번) — 부트스트랩 인증서 차단은 TLS 단이 아니라 ACL `no_match = deny` 가 담당. EMQX 가 *서버로서* 제시하는 체인(`certfile`)은 `emqx-server-tls` 의 `tls.crt`(= leaf + Intermediate) 그대로.
-- **클라이언트 측 체인 제시**: 디바이스/워크로드는 mTLS 핸드셰이크에 `leaf + Intermediate` 번들 제시 필요(EMQX 가 Root 를 앵커로 가지므로 OTP `ssl` 이 `leaf → Intermediate → Root` 경로를 구성하려면 Intermediate 가 핸드셰이크에 와 있어야 함; leaf 만 보내면 검증 실패). cert-manager 발급 Secret 의 `tls.crt` 는 자동 충족. ESP8266 펌웨어는 `/1.0/sign`·`/1.0/renew` 응답의 `certChain`(=[leaf, intermediate])을 둘 다 저장하고 BearSSL `setClientECCert()` 에 둘 다 제시(펌웨어 후속 작업).
+- **CA bundle / 체인 (값)**: listener `ssl_options.cacertfile` = `emqx-server-tls` Secret 의 `ca.crt` (= StepClusterIssuer `caBundle` = step-ca **Root CA**); EMQX 가 서버로서 제시하는 체인 (`certfile`) = `emqx-server-tls` 의 `tls.crt` (= leaf + Intermediate). Root 를 trust anchor 로 쓰는 이유·EMQX 5.8.6 `partial_chain` 부재·클라이언트의 `leaf + Intermediate` 제시 요구는 `context/knowledge/emqx.md` "mTLS 구성" · `context/knowledge/step-ca.md` (docs ADR 12번). 부트스트랩 인증서 차단은 TLS 단이 아니라 ACL `no_match = deny`.
 - **Reloader annotation** (StatefulSet metadata):
   - `secret.reloader.stakater.com/reload: "emqx-server-tls"` — 서버 인증서 갱신 시 rollout.
   - `configmap.reloader.stakater.com/reload: "emqx-acl"` — ACL 변경 시 rollout.
-- **client_id 충돌 처리**: 같은 CN 으로 두 클라이언트가 접속 시 EMQX 가 나중 접속을 끊지 않게 `mqtt.discard_session_on_disconnect: false` 또는 `clientid_override` 검토 (security 결정 7번 의 "유령 인증서 동시 publish" 대응). 본 phase 에서는 default 유지하되 visibility 단계에서 동일 CN 접속 감지 alert 추가.
+- **client_id 충돌**: 같은 CN 으로 두 클라이언트 접속 시 (docs ADR 7번 "유령 인증서 동시 publish") 본 phase 에서는 default 동작 유지, visibility 단계에서 동일 CN 접속 감지 alert 추가.
 - Argo CD sync-wave: `1` (step-ca 다음; `emqx-acl` 은 mapping-generator wave `-1` 의 init Job 이 이미 생성).
 - **리소스 / Port** 는 messaging phase 와 동일. 본 phase 에서 변경하지 않음.
 
@@ -169,27 +167,16 @@
 | `-3` | cert-manager | CRD 먼저 (모든 후속 컴포넌트 의존) |
 | `-3` | reloader | cert-manager 와 병행 — 누가 reloader annotation 달기 전에 떠 있어야 |
 | `-2` | step-issuer | cert-manager CRD 의존; StepClusterIssuer 함께 선언 |
-| `-1` | mapping-generator | `device-room-mapping` CM + CronJob + 일회성 init Job(완료돼야 다음 wave) → `emqx-acl`/`step-ca-whitelist`/`telegraf-lookup` 이 step-ca·emqx 보다 먼저 존재. dependency 없음 |
-| `0` | step-ca | initContainer 가 `step-ca-whitelist`(wave `-1` 생성) 를 `ca.json` 에 머지; `ca-whitelist` 볼륨 `optional: true` |
+| `-1` | mapping-generator | `device-room-mapping` CM + CronJob + 일회성 init Job (완료돼야 다음 wave) → `emqx-acl`/`step-ca-whitelist`/`telegraf-lookup` 이 step-ca·emqx 보다 먼저 존재. dependency 없음 |
+| `0` | step-ca | initContainer 가 `step-ca-whitelist` (wave `-1` 생성) 를 `ca.json` 에 머지; `ca-whitelist` 볼륨 `optional: true` |
 | `1` | emqx | `emqx-acl` 마운트 (messaging phase 배포본의 mTLS 재전환); step-ca 다음 |
 
 후속 phase 의 Edge Gateway / Telegraf 는 본 phase 완료 후 별도 phase.
 
 ## 후속 작업 (본 phase 범위 외, 디바이스/펌웨어 작업)
 
-- **ESP8266 펌웨어 EST-like 흐름 구현** (인프라 1, 코드)
-  - **하드웨어 / 라이브러리 선정 근거**: ESP8266 (NodeMCU, CP-2102). ESP8266 Arduino 코어의 표준 secure WiFi client (`WiFiClientSecure`, BearSSL 기반) 는 TLS 핸드셰이크/HTTPS 만 제공하고 키 페어 생성·CSR(PKCS#10) 인코딩·EST 같은 PKI 프리미티브는 노출하지 않음 → 그 부분을 펌웨어에서 직접 구현해야 함. 추가로 디바이스 메모리 제약 (SRAM ~80KB, 운영 mTLS 안정화 시점 free heap ~18.4KB, EST 호출 중 일시 ~12.5KB) 이라 별도 mbedTLS 풀 스택을 끼워 넣는 것도 불가. 그래서 라이브러리 조합을 다음과 같이 변경·채택 (조합 선택의 주된 이유는 "표준 client 가 CSR/EST 미제공"):
-    - **BearSSL**: ESP8266 Arduino 코어 기본 TLS 라이브러리. mTLS 핸드셰이크 + HTTPS POST 담당. `WiFiClientSecure` 의 `setClientECCert()` 로 클라이언트 인증서 + ECDSA 키 주입.
-    - **uECC (micro-ecc)**: ECDSA P-256 키 페어 디바이스 측 생성 (flash ~3KB). 표준 secure client 가 키 생성을 제공하지 않아 이를 보완.
-    - **자체 CSR ASN.1 DER 인코딩**: PKCS#10 CSR 을 펌웨어 단 직접 구현 (~130줄). 표준 secure client 가 CSR/EST 인코딩을 제공하지 않아 직접 구현.
-  - **부트스트랩 흐름**:
-    - NVS (LittleFS) 에 사전 굽힌 부트스트랩 인증서/키 + step-ca root_ca.crt 로드.
-    - 첫 부팅 시: uECC 로 ECDSA P-256 키페어 생성 → CSR DER 직접 인코딩 → JWT (x5c header = 부트스트랩 인증서) 구성 → step-ca `/1.0/sign` 으로 HTTPS POST → 정식 인증서 LittleFS 저장 → 부트스트랩 인증서/키 NVS 삭제.
-    - 정상 운영: 정식 인증서로 EMQX mTLS 연결, 5 초 주기 publish.
-    - 갱신: 만료 30 일 전 `/1.0/renew` 호출 (정식 인증서로 인증, key reuse 또는 신규 키 재생성). 갱신 성공 시 LittleFS 의 인증서 교체.
-  - **검증된 트레이드오프**:
-    - BearSSL 클라이언트가 IP SAN 매칭 미지원 → step-ca 서버 인증서엔 DNS SAN 만 두고(노드 IP 미포함), 디바이스는 노드 IP 로 접속하되 IP SAN 검증은 안 함. 검증 환경은 `setInsecure()` 우회, 운영 환경은 펌웨어에 하드코딩한 DNS 명을 노드 IP 로 매핑 + 그 명을 step-ca `dnsNames` 에 추가 — 별도 ADR.
-    - Store-and-Forward (LittleFS 메시지 큐) 는 본 단계에서 우선순위 후순위. 운영 시 센서 끊김으로 처리.
-  - 부트스트랩 인증서/키 NVS 굽기 절차: 인프라 2 가 step CLI 로 발급 → 직접 USB / 암호화 채널 전달 → 인프라 1 이 펌웨어 빌드 시 LittleFS 이미지에 포함 또는 시리얼 입력.
-
+- **ESP8266 펌웨어 EST-like 흐름** (인프라 1, 코드 — 본 phase 범위 외)
+  - 표준 BearSSL secure client 가 키 생성/CSR(PKCS#10)/EST 를 안 줘서 BearSSL(mTLS+HTTPS) + uECC(P-256 키생성) + 자체 ASN.1 DER CSR 인코딩 조합 채택. 조합 근거·디바이스 메모리 제약·검증된 트레이드오프는 `context/knowledge/step-ca.md`.
+  - 부트스트랩 흐름: 첫 부팅 시 키페어 생성 → CSR(CN = `device-XXXXXX`, SAN 은 없거나 같은 값의 **DNS SAN 만** — IP SAN 넣으면 step-ca 가 발급 거부) → JWT(x5c=부트스트랩 cert) → step-ca `/1.0/sign` → 정식 cert LittleFS 저장 → 부트스트랩 cert/키 삭제. 운영 중 만료 30d 전 `/1.0/renew`. EMQX 핸드셰이크엔 `[leaf, intermediate]` 둘 다 제시.
+  - 부트스트랩 cert/키 NVS 굽기: 인프라 2 가 step CLI 발급 → 안전 채널 전달 → 인프라 1 이 LittleFS 이미지에 포함.
 - **Edge Gateway / Telegraf 배포** (다음 phase): 본 phase 의 PKI 가 동작한 후 가능.
