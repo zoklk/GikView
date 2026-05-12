@@ -21,7 +21,7 @@
 - **선택**: step-ca를 Intermediate CA로 운영. Helm chart, e-s1 K3s Pod
 - **대안**: HashiCorp Vault PKI, OpenSSL 자체 CA, AWS Private CA, Let's Encrypt(ACME)
 - **이유**: X5C provisioner로 EST-like 흐름(기존 인증서로 새 인증서 발급)을 구현 가능 — 단 step-ca 오픈소스는 RFC 7030 EST **표준 자체는 미지원**(이슈 #2366, 2026-05 기준 미구현)이라, 디바이스는 표준 EST 클라이언트(`simpleenroll`/`simplereenroll`)가 아닌 step-ca REST API(`/1.0/sign`, `/1.0/renew`)를 직접 호출. ACME는 도메인 검증 필요해 학내망 디바이스 부적합. HashiCorp Vault는 기능 풍부(EST provisioner 포함)하나 학습 곡선 큼, 본 규모에 over-engineering. OpenSSL은 서버 기능 없어 자동화 어려움. AWS Private CA는 비용 발생 + 외부 의존. step-ca는 가벼우면서 X5C/ACME/JWK 등 다양한 provisioner 지원해 본 use case에 직접 부합
-- **트레이드오프**: 단일 Intermediate CA 구조 (다중 발급 CA 미지원). Root CA는 항상 오프라인 (단일 tier PKI 미지원). 본 프로젝트 규모에는 영향 없음. EST 표준 미지원이라 디바이스 펌웨어가 step-ca REST API 호출(NodePort 경유, 결정 11) + CSR 인코딩을 자체 구현해야 함 (phase doc 후속 작업, `context/knowledge/step-ca.md` 참조)
+- **트레이드오프**: 단일 Intermediate CA 구조 (다중 발급 CA 미지원). 단, 부트스트랩 신뢰체인 격리용 별도 Bootstrap CA(Root가 서명, end-entity 인증서는 발급 안 함)는 예외 — 결정 13번. Root CA는 항상 오프라인 (단일 tier PKI 미지원). 본 프로젝트 규모에는 영향 없음. EST 표준 미지원이라 디바이스 펌웨어가 step-ca REST API 호출(NodePort 경유, 결정 11) + CSR 인코딩을 자체 구현해야 함 (phase doc 후속 작업, `context/knowledge/step-ca.md` 참조)
 
 ### 3. K8s 워크로드 인증서는 cert-manager + step-issuer로 자동화 (2026-05-06)
 
@@ -32,10 +32,10 @@
 
 ### 4. 부트스트랩 인증서 + MAC 화이트리스트 패턴 (2026-05-06)
 
-- **선택**: 모든 디바이스가 동일한 부트스트랩 인증서(만료 7일, CN=`bootstrap`)로 시작. 첫 부팅 시 EST-like 흐름(X5C provisioner + step-ca REST API `/1.0/sign`)으로 정식 인증서(CN=`device-{MAC 뒷 6자리}`, 만료 90일) 발급. step-ca provisioner 정책에 허용 device_id 화이트리스트 등록 (ConfigMap)
+- **선택**: 모든 디바이스가 동일한 부트스트랩 인증서(만료 7일, CN=`bootstrap`)로 시작 (이 부트스트랩 인증서는 별도 Bootstrap CA가 서명 — 운영 체인과 분리, 결정 13번). 첫 부팅 시 EST-like 흐름(X5C provisioner + step-ca REST API `/1.0/sign`)으로 정식 인증서(CN=`device-{MAC 뒷 6자리}`, 만료 90일) 발급. step-ca provisioner 정책에 허용 device_id 화이트리스트 등록 (ConfigMap)
 - **대안**: 디바이스별 인증서를 빌드 시점에 펌웨어/NVS에 주입, 일회용 등록 토큰
 - **이유**: 모든 디바이스 동일 NVS 이미지로 굽기 가능 → 대량 배포 단순화. 부트스트랩 인증서 유출 시 MAC 화이트리스트로 1차 방어 → 등록되지 않은 디바이스는 정식 인증서 발급 거부. 부트스트랩 만료 7일 + EMQX ACL에서 부트스트랩 CN의 모든 publish/subscribe 거부 → 추가 방어. 정식 인증서 수신 후 NVS의 부트스트랩 즉시 삭제로 재사용 차단
-- **트레이드오프**: 부트스트랩 인증서가 모든 디바이스에 동일하므로 한 번 유출되면 화이트리스트가 유일한 방어선. step-ca 다운 시 신규 디바이스 첫 부팅 + 정식 인증서 갱신 일시 중단 (기존 디바이스 운영은 영향 없음). MAC 화이트리스트 등록은 사람이 git commit으로 관리 → 운영 부담 작음
+- **트레이드오프**: 부트스트랩 인증서가 모든 디바이스에 동일 → 유출 시 방어층 = (1) MAC 화이트리스트(발급 거부) (2) EMQX ACL no_match=deny(연결돼도 publish/subscribe 권한 0, 결정 12번) (3) 만료 7일 + disableRenewal (4) Bootstrap CA 회전 + 재플래시(결정 13번). EMQX TLS 핸드셰이크 단계 차단은 EMQX 5.8.6의 partial_chain 부재로 불가(결정 12번). step-ca 다운 시 신규 디바이스 첫 부팅 + 정식 인증서 갱신 일시 중단 (기존 디바이스 운영은 영향 없음). MAC 화이트리스트 등록은 사람이 git commit으로 관리 → 운영 부담 작음
 
 ### 5. EMQX ACL과 step-ca 화이트리스트는 단일 ConfigMap에서 자동 생성 (2026-05-11)
 
@@ -58,7 +58,7 @@
 
 - **선택**: 본 단계에서는 인증서 폐기 메커니즘(CRL/OCSP responder, 갱신 시 이전 인증서 자동 revoke) 미구현. 활성 CN 목록을 visibility 스택에서 표시하는 운영자 가시성으로 임시 대응
 - **대안**: step-ca OCSP responder 활성화 + EMQX OCSP stapling 설정, 갱신 시 step-ca 후크로 이전 시리얼 자동 CRL 등록
-- **이유**: EST-like 호출(step-ca REST API)은 mTLS 채널에서만 발생 → 발급된 인증서가 네트워크상에 노출되지 않음. "유령 인증서"(서버가 발급했으나 클라이언트가 미수신)는 디바이스 외부에 대응 개인키가 없어 무력화. 갱신 시 이전 인증서의 잠재적 유효성도 짧은 만료(90일)와 데이터 레이어 이상탐지로 흡수 가능. CRL/OCSP는 운영 컴포넌트와 EMQX 측 설정 복잡도를 늘리는 데 비해 본 위협 모델(결정 6번)에서의 실효 이득이 작음
+- **이유**: EST-like 호출(step-ca REST API)은 mTLS 채널에서만 발생 → 발급된 인증서가 네트워크상에 노출되지 않음. "유령 인증서"(서버가 발급했으나 클라이언트가 미수신)는 디바이스 외부에 대응 개인키가 없어 무력화. 갱신 시 이전 인증서의 잠재적 유효성도 짧은 만료(90일)와 데이터 레이어 이상탐지로 흡수 가능. CRL/OCSP는 운영 컴포넌트와 EMQX 측 설정 복잡도를 늘리는 데 비해 본 위협 모델(결정 6번)에서의 실효 이득이 작음. 또한 폐기 확인은 인증서를 받는 모든 relying party가 수행해야 하는데(mTLS는 양측 모두), ESP8266은 서버(EMQX·step-ca) 인증서의 CRL 다운로드·파싱이나 OCSP 왕복을 할 메모리 여유가 없고 BearSSL도 미구현 → CRL/OCSP를 켜도 절반만 동작하는 비대칭 구성이 됨. 폐기가 꼭 필요한 경우(특히 부트스트랩 크리덴셜)는 발급 CA 회전으로 갈음(결정 13번)
 - **트레이드오프**: 인증서 dump를 통한 키 탈취 시 즉시 차단 불가. 정상 디바이스 인증서와 탈취된 인증서가 만료까지 동시 유효. 짧은 만료(90일) + 데이터 레이어 이상탐지(결정 10번) + 운영자 가시성으로 완화.
 
 ### 8. 인증서 갱신 시 Pod 자동 rollout을 위해 Reloader 도입 (2026-05-11)
@@ -97,3 +97,19 @@
 - **이유**: step-ca가 e-s1 단일 Pod라 도달지점이 하나 → ingress 추상화 이득 없음. messaging.md 결정 3(EMQX NodePort)과 동일 토폴로지·동일 근거(단일 control-plane에서 L2 Announcement는 apiserver SPOF). 노드 IP가 정적이라 펌웨어 하드코딩 무리 없음. step-ca API는 X5C provisioner라 익명 접근 불가(유효한 부트스트랩/정식 인증서로 서명한 JWT 필요) + MAC 화이트리스트로 노출 면적 제한
 - **트레이드오프**: 노드 교체 시 펌웨어 재배포 필요. step-ca 서버 인증서 SAN에 노드 IP 추가 필요(부팅 시 Intermediate로 self-issue되는 leaf). ESP8266 BearSSL이 IP SAN을 검증하지 않음(`context/knowledge/step-ca.md` 주의사항) → 운영 환경 trust 전략(DNS 명 사용 또는 `setInsecure`)은 별도 ADR. 공유기 포트포워딩 설정(운영자 1회 작업) 필요. `:9000`이 학내망에 노출되므로 미인증 요청도 step-ca까지 도달(서명 검증에서 거부) → 노드 방화벽/포트포워딩 범위로 추가 제한 권장
 - **관련**: messaging.md 결정 3
+
+### 12. EMQX 클라이언트 인증서 검증 trust anchor를 Root CA로 (2026-05-12)
+
+- **선택**: EMQX mqtts listener의 `ssl_options.cacertfile`을 step-ca **Root CA**(cert-manager 발급 `emqx-server-tls` Secret의 `ca.crt`)로. 부트스트랩 인증서(`leaf → Bootstrap CA → Root`)는 TLS 검증을 통과하며, 차단은 ACL 계층(`peer_cert_as_username=cn` → CN=`bootstrap`이 어떤 룰에도 매칭 안 됨 → `no_match=deny`)이 담당 — ACL이 부트스트랩 격리의 *의도된 최종 방어선*.
+- **대안**: `cacertfile`을 Intermediate CA로만 설정해 부트스트랩 인증서를 TLS 핸드셰이크 단계에서 거부 (`ssl_options.partial_chain` 옵션 필요).
+- **이유**: EMQX는 Erlang/OTP 위에서 동작하고 TLS는 OTP `ssl`이 담당 — OTP `ssl`은 신뢰 체인이 self-signed Root까지 닿아야 통과하고, 중간 CA를 단독 trust anchor로 인정하려면 `partial_chain` fun이 필수다. EMQX 5.8.6의 listener `ssl_options` schema는 `partial_chain`을 노출하지 않아(`emqx_schema.erl` `common_ssl_opts_schema`/`server_ssl_opts_schema` 확인) `cacertfile=Intermediate`면 정상 디바이스/워크로드 인증서마저 검증 실패할 위험이 있고 5.8.6엔 교정 손잡이가 없다. EMQX 5.9+는 BSL 1.1 라이선스라 업그레이드 비용 큼(`context/knowledge/emqx.md`), 앞단 TLS 프록시도 OpenSSL `PARTIAL_CHAIN`을 노출 안 함. → 본 위협 모델(결정 6번)에서 부트스트랩 인증서에 대한 충분한 방어는 MAC 화이트리스트(발급 거부) + ACL `no_match=deny`(연결돼도 권한 0) + 짧은 만료(7일, `disableRenewal: true`) + 유출 시 Bootstrap CA 회전(결정 13번)의 조합.
+- **트레이드오프**: 부트스트랩 인증서가 EMQX와 TLS 핸드셰이크는 수립 가능(데이터 평면은 ACL이 막음). ACL은 mapping-generator가 주기 재생성하는 `emqx-acl` ConfigMap에 의존하는 런타임 가변 통제 — `no_match=deny` 종료 + 비-`device-XXXXXX` CN 매칭 룰 부재 보장 필요(스모크가 `{deny, all}.` 종료 검증). 클라이언트는 핸드셰이크에 `leaf + Intermediate` 번들 제시 필요(OTP가 `leaf → Intermediate → Root` 경로 구성 가능하도록) — cert-manager 발급 Secret의 `tls.crt`는 자동 충족, ESP8266 펌웨어는 `/1.0/sign` 응답 `certChain`(=[leaf, intermediate])을 둘 다 저장·제시해야 함.
+- **관련**: 결정 4번, 결정 13번, `context/knowledge/emqx.md`
+
+### 13. 부트스트랩 신뢰체인 격리 및 폐기는 CA 회전으로 (2026-05-12)
+
+- **선택**: 부트스트랩 인증서를 운영 발급 CA(Intermediate)가 아닌 별도 **Bootstrap CA**(Root가 직접 서명)로 서명하고, step-ca X5C provisioner를 `device-bootstrap`(roots=Bootstrap CA, `disableRenewal: true`)·`device-renewal`(roots=Intermediate)로 분리한다(이 구성 자체는 결정 4번·phase doc에 기재). CRL/OCSP 미도입(결정 7번)으로 개별 인증서 폐기가 불가능하므로 부트스트랩 크리덴셜의 폐기/회전은 **Bootstrap CA 자체의 회전**으로 한다 — 프로비저닝 완료 시 `device-bootstrap` provisioner 제거 또는 `roots` 비우기로 경로 폐쇄; 유출 시 새 Bootstrap CA + 새 공통 부트스트랩 인증서 발급 → `device-bootstrap.roots` 교체 → 디바이스 재플래시(운영 인증서 체인·EMQX 서버 인증서·워크로드 인증서 영향 0). 절차 상세는 `context/knowledge/step-ca.md`.
+- **대안**: 부트스트랩 인증서도 Intermediate가 서명(단일 발급 CA) + CN(`bootstrap`)으로만 첫 발급/갱신 구분; CRL/OCSP responder 도입(결정 7번에서 기각).
+- **이유**: 부트스트랩 인증서는 모든 디바이스 펌웨어에 동일하게 굽히고 ESP8266은 Flash Encryption/Secure Boot 미적용이라 추출 가능 → *유출 전제* 저신뢰 크리덴셜. 이를 운영/워크로드 인증서를 보증하는 Intermediate가 서명하면 "Intermediate 서명 = 신뢰된 운영 신원" 의미가 희석되고, Root를 클라이언트 인증에 쓰는 다른 mTLS 표면이 생기면 그곳의 유효 클라이언트가 됨. 별도 CA면 부트스트랩 크리덴셜이 구조적으로 "step-ca `device-bootstrap`에 말 거는 것" 한 가지로 스코프되고 폐기/회전 폭발 반경이 부트스트랩 경로에 국한됨.
+- **트레이드오프**: 사전 준비에 CA 1개 + 키 오프라인 보관 추가. 유출 시 9대 재플래시 필요(`disableRenewal: true`라 7일 내 미온라인 배치는 어차피 재플래시 대상이므로 운영 절차와 겹침). EMQX TLS 단 차단은 본 결정으로 달성 안 됨(결정 12번) — ACL 몫.
+- **관련**: 결정 2번(단일 Intermediate CA 구조 — Bootstrap CA는 end-entity 인증서를 발급하지 않는 별도 Root-서명 CA), 결정 4번, 결정 7번, 결정 12번

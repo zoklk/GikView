@@ -60,6 +60,7 @@
   - `device-renewal` (X5C): Intermediate CA 를 root 로. 동일 — `allow.cn` 명시 목록. 정식 인증서 갱신 전용.
   - `admin` (JWK): 운영자 / K8s 워크로드 발급용. step-issuer 연결.
   - **`policy.x509.allow.cn` 은 등록된 device CN 명시 목록만 (정규식 안 넣음 — 정규식만 두면 6-hex CN 아무거나 통과해 whitelist 가 무의미해짐). helm values 의 X5C 템플릿 블록엔 `allow.cn` 빈 목록(또는 생략) + `deny` + claims 등 정적 부분만; 실제 CN 목록은 initContainer 가 `step-ca-whitelist` ConfigMap 으로 채움 (결정 (c)). step-ca workload 에 `extraInitContainers`/`extraVolumes`/`extraVolumeMounts`(step-certificates 1.30.x native 훅)로 머지 initContainer + `ca-merged` emptyDir 추가; `ca-whitelist` 볼륨은 `optional: true`(whitelist 아직 없어도 부팅 OK, initContainer 는 없으면 빈 목록 취급); `bootstrap.enabled: false`. (initContainer 가 목록을 set 으로 덮을지 append 할지는 step-ca 의 빈 allowlist 동작 확인 후 차트에서 확정.) 상세: `context/knowledge/step-ca.md` Policy 절.**
+  - **부트스트랩 경로 폐기/회전**: CRL/OCSP 미도입(결정 7번)이므로 부트스트랩 크리덴셜 폐기는 Bootstrap CA 회전으로 — 프로비저닝 완료 후 `device-bootstrap` provisioner 제거 또는 `roots` 비우기, 유출 시 새 Bootstrap CA 발급 + `device-bootstrap.roots` 교체 + 재플래시(운영 체인 영향 0). 결정 13번, `context/knowledge/step-ca.md`.
 - Argo CD sync-wave: `0`.
 - **Port**:
   - `https: 9000` — step-ca REST API (`/1.0/sign`, `/1.0/renew`). ClusterIP (step-issuer/cert-manager 내부용) **+ NodePort 노출** (`step-ca-nodeport` 서비스, `security` 카테고리 노드 = prod e-s1 / dev alpha-w1, 고정 nodePort 예: `31900`). `externalTrafficPolicy: Local` 로 step-ca 가 디바이스 실제 IP 를 로그/정책에서 보게 함. 외부 포트 매핑은 messaging.md 패턴(공유기 포트포워딩).
@@ -149,7 +150,8 @@
   - `/etc/emqx/acl/acl.conf` 경로로 ConfigMap volumeMount.
   - authorization sources 의 첫 entry 로 `{type = file, path = "/etc/emqx/acl/acl.conf"}` 등록.
   - `no_match = deny` 로 미매칭 시 거부.
-- **CA bundle 마운트**: step-ca 의 root_ca.crt 를 EMQX 가 클라이언트 인증서 검증에 사용. cert-manager 가 생성한 `emqx-server-tls` Secret 의 `ca.crt` 사용 또는 별도 `step-ca-root` Secret 마운트.
+- **CA bundle 마운트 (= listener `ssl_options.cacertfile`)**: step-ca **Root CA** 를 클라이언트 인증서 검증 trust anchor 로 — cert-manager 가 생성한 `emqx-server-tls` Secret 의 `ca.crt`(= StepClusterIssuer `caBundle` = Root) 를 그대로 마운트. **Intermediate-only 는 EMQX 5.8.6 의 `partial_chain` 부재로 미채택**(security 결정 12번) — 부트스트랩 인증서 차단은 TLS 단이 아니라 ACL `no_match = deny` 가 담당. EMQX 가 *서버로서* 제시하는 체인(`certfile`)은 `emqx-server-tls` 의 `tls.crt`(= leaf + Intermediate) 그대로.
+- **클라이언트 측 체인 제시**: 디바이스/워크로드는 mTLS 핸드셰이크에 `leaf + Intermediate` 번들 제시 필요(EMQX 가 Root 를 앵커로 가지므로 OTP `ssl` 이 `leaf → Intermediate → Root` 경로를 구성하려면 Intermediate 가 핸드셰이크에 와 있어야 함; leaf 만 보내면 검증 실패). cert-manager 발급 Secret 의 `tls.crt` 는 자동 충족. ESP8266 펌웨어는 `/1.0/sign`·`/1.0/renew` 응답의 `certChain`(=[leaf, intermediate])을 둘 다 저장하고 BearSSL `setClientECCert()` 에 둘 다 제시(펌웨어 후속 작업).
 - **Reloader annotation** (StatefulSet metadata):
   - `secret.reloader.stakater.com/reload: "emqx-server-tls"` — 서버 인증서 갱신 시 rollout.
   - `configmap.reloader.stakater.com/reload: "emqx-acl"` — ACL 변경 시 rollout.
