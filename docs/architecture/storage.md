@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![storage architecture](images/storage-architecture.png) <!-- TODO: InfluxDB e-s1 K3s Pod + 외장 SSD(디렉토리 bind 분리) + Edge Gateway write 흐름. raw timeseries(InfluxDB) vs 변경 이벤트(DynamoDB) 역할 분리 표현 -->
+![storage architecture](images/storage-architecture.png)
 
 ## 결정 사항
 
