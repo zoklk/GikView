@@ -1,0 +1,5 @@
+apiVersion: v2
+name: mapping-generator
+version: 0.1.0
+appVersion: "0.1.0"
+description: Derives emqx-acl, step-ca-whitelist and telegraf-lookup ConfigMaps from the device-room-mapping single source of truth (init Job + CronJob)

@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mapping-generator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mapping-generator.labels" . | nindent 4 }}
+rules:
+  # Reads device-room-mapping; creates/updates emqx-acl, step-ca-whitelist,
+  # telegraf-lookup. Shared by the init Job and the CronJob.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mapping-generator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mapping-generator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mapping-generator.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mapping-generator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

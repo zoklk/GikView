@@ -101,7 +101,7 @@
 **node_category**: [security]
 **references**: [none]
 
-- 자체 코드. Helm chart + Docker 이미지 빌드 (linux/arm64 + amd64 multi-arch).
+- 자체 코드. Helm chart + Docker 이미지 빌드 — 하네스가 `conventions.build_platforms`(현재 `linux/amd64`+`linux/arm64`)로 `docker buildx build --push` 단일 명령으로 multi-arch manifest list 를 빌드/푸시. Dockerfile 은 두 arch 모두에서 깨끗이 빌드돼야 함(`TARGETARCH` 분기 없이 arch 별 바이너리 다운로드 금지 — buildx 가 `TARGETPLATFORM`/`TARGETARCH`/`TARGETOS` build arg 제공). 빌드 호스트 사전 셋업은 아래 "이미지 레지스트리 사전 작업" 참고.
 - **단일 진실 공급원**: `device-room-mapping` ConfigMap (사람이 git commit 으로 관리). data 키 = `mapping.csv`, 헤더 행 없음, 한 줄 = `device_id,room_id`. room_id 규약 = `room-{건물 a|b}-{층}-{호실 idx}` (예 `room-a-3-2`; 스모크 엔트리 `room-a-9-9` 는 의도적으로 비실재 슬롯). 이 CM 은 mapping-generator helm chart 의 templates 에서 `.Values.deviceRoomMapping` 맵을 렌더 — 별도 수동 ConfigMap 이 아님. `values-dev.yaml`/`values-prod.yaml` 양쪽에 스모크 엔트리 `deviceRoomMapping: { device-aaaaaa: room-a-9-9 }` (실제 디바이스 추가 시 줄 추가). mapping-generator 는 각 `device_id` 를 `^device-[a-f0-9]{6}$` 로 검증한 항목만 출력(불일치는 skip + 로그 — 오타가 `step-ca-whitelist` 로 새는 거 방지). Edge Gateway 등은 이 SoT 를 직접 참조 — mapping-generator 가 따로 만들어주는 CM 은 없음.
 - **출력 ConfigMap 3 종 동시 자동 생성**:
   - `emqx-acl`: EMQX file authorizer 가 마운트. Erlang tuple 형식. CN (= peer_cert_as_username) 기반 publish/subscribe 권한.
@@ -122,6 +122,9 @@
 - **rollout trigger**: ConfigMap 갱신 후 Reloader 가 의존 워크로드 rollout 자동 트리거 (workload annotation 으로). 본 phase 범위: EMQX(`emqx-acl`), step-ca(`step-ca-whitelist`). Telegraf(`telegraf-lookup`) 는 Telegraf 배포 phase 부터. — step-ca StatefulSet 의 Reloader annotation 은 업스트림 step-certificates 차트가 워크로드 metadata annotation 훅을 안 노출 → 엄브렐라 차트의 post-render(kustomize) strategic-merge patch 로 주입(`kustomization.yaml` + patch). 대안 B(mapping-generator 가 `kubectl rollout restart statefulset/step-ca` 직접 호출)는 기각 — 메커니즘 비대칭(EMQX 는 Reloader)·mapping-generator RBAC 확대(`statefulsets patch`)·whitelist 변경감지 로직 필요(없으면 15 분마다 무의미 restart)·`smoke-test-step-ca.sh #4b` 의 annotation hard-check 위반.
 - **권한**: ConfigMap get/list/update/create 가능한 ServiceAccount (init Job 과 CronJob 공용).
 - **Argo CD sync-wave: `-1`** (step-ca·emqx 보다 먼저). 차트가 `device-room-mapping` ConfigMap + CronJob(`*/15 * * * *`) + 일회성 init Job(배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC(ConfigMap get/list/create/update SA, init Job·CronJob 공용) 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca(wave 0) initContainer / emqx(wave 1) ACL 마운트 시 이미 존재.
+- 이미지 레지스트리 사전 작업 (사람 1회, 환경마다): GHCR 패키지를 private 유지 → docker login ghcr.io (push: write:packages PAT) + gikview 네임스페이스에 ghcr-pull Secret
+  (kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io ..., read:packages 전용 PAT) 사전 생성. 차트가 ServiceAccount 의 imagePullSecrets 로 참조.
+- multi-arch buildx 빌드 호스트 사전 작업 (사람 1회, `/deploy` 를 돌리는 머신마다): `docker buildx create --name multiarch --driver docker-container --bootstrap --use` + `docker run --privileged --rm tonistiigi/binfmt --install all` (기본 `docker` 드라이버 buildx 로는 multi-platform 빌드 불가; Docker Desktop 이면 둘 다 번들). `docker login ghcr.io` 는 buildx `--push` 가 빌드 *전* 에 인증이 필요하므로 이 시점에 돼 있어야 함. 상세: Kubeharness README "사전 준비 > multi-arch 이미지 빌드".
 - **리소스**:
   - CPU: `50m` / `200m`
   - Memory: `64Mi` / `128Mi`
