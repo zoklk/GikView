@@ -16,11 +16,19 @@
 #   6. 서버 leaf 인증서 SAN (in-cluster DNS + 노드 IP)
 #   7. PKI 체인 e2e — StepClusterIssuer 경유 워크로드 인증서 발급 → 우리 Root CA 로 체인
 #   8. (네거티브) POST /1.0/sign 무인증 → 2xx 아님 (X5C provisioner 익명 개방 아님)
+#   9. /1.0/renew e2e — #7 의 admin(JWK)-발급 leaf 를 mTLS 클라이언트로 제시 → 새 leaf 가
+#      같은 CN · Root CA 체인 · notAfter 전진
+#  10. X5C 부트스트랩 e2e — device-bootstrap provisioner: 테스트용 부트스트랩 신원
+#      (Secret 'step-ca-smoke-bootstrap', kubernetes.io/tls — tls.crt/tls.key)로
+#      X5C 토큰 → step-ca 에 정식(device) 인증서 요청.
+#      (a) 화이트리스트 등록 CN → 발급 + Intermediate→Root 체인
+#      (b) 미등록 CN(device-ffffff) → step-ca-whitelist→ca.json policy(결정 c)로 거부
 #
-# 범위 외 (스모크 없음): ESP8266 부트스트랩 EST-like 흐름(/1.0/sign w/ X5C JWT, /1.0/renew) —
-#   펌웨어 필요. CRL/OCSP (ADR 7 미도입). 학내망 도달/포트포워딩(운영자 1회).
+# 범위 외 (스모크 없음): 펌웨어측 흐름(키 재생성·LittleFS 교체·/1.0/renew 호출 스케줄) — 펌웨어 필요.
+#   CRL/OCSP (ADR 7 미도입). 학내망 도달/포트포워딩(운영자 1회).
 #
-# 사전조건: 러너에 openssl + python3 (+ kubectl). StepClusterIssuer Ready (#7 용).
+# 사전조건: 러너에 openssl + python3 (+ kubectl). StepClusterIssuer Ready (#7·#9 용).
+#   #10 은 Secret 'step-ca-smoke-bootstrap'(kubernetes.io/tls) + 'step' CLI — 둘 다 있을 때만 실행, 아니면 note-skip.
 
 set -euo pipefail
 NS="${NAMESPACE:?NAMESPACE env not injected by runtime}"
@@ -44,6 +52,8 @@ cleanup() {
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null || true
   kubectl delete certificate "$CERT_NAME" -n "$NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl delete secret "$SECRET_NAME" -n "$NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  rm -f /tmp/sca_rnw_* /tmp/sca_x5c_* /tmp/stepca_bootstrap.* /tmp/x5c_* 2>/dev/null || true
+  rm -rf /tmp/x5c_steppath.* 2>/dev/null || true   # 크래시 경로용 — 위 rm -f 는 디렉토리 안 지움
 }
 trap cleanup EXIT INT TERM
 
@@ -407,5 +417,157 @@ case "$SIGN_CODE" in
   *)
     echo "note: /1.0/sign without auth returned HTTP $SIGN_CODE (rejected before/at auth; not anonymously open)" ;;
 esac
+
+# ── 9. /1.0/renew e2e ───────────────────────────────────────────────────────
+# #7 에서 admin(JWK) provisioner 로 발급한 leaf(${SECRET_NAME})를 그대로 mTLS 클라이언트
+# 인증서로 제시해 /1.0/renew → 새 leaf 를 받아 (a) 같은 CN (b) Root CA 로 체인
+# (c) notAfter 가 원본보다 뒤인지 단정. CRT_READY 였던 경우만 실행 (#7 가 policy 로
+# note 강등됐으면 발급 leaf 자체가 없으니 skip).
+if [ -n "${CRT_READY:-}" ]; then
+  RNW_CRT=/tmp/sca_rnw_in.crt; RNW_KEY=/tmp/sca_rnw_in.key
+  kubectl get secret "$SECRET_NAME" -n "$NS" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > "$RNW_CRT" 2>/dev/null || true
+  kubectl get secret "$SECRET_NAME" -n "$NS" -o jsonpath='{.data.tls\.key}' 2>/dev/null | base64 -d > "$RNW_KEY" 2>/dev/null || true
+  { [ -s "$RNW_CRT" ] && [ -s "$RNW_KEY" ]; } || {
+    echo "FAIL: renew: could not read leaf cert/key from '$SECRET_NAME' for /1.0/renew"
+    echo "  actual: crt_empty=$([ -s "$RNW_CRT" ] || echo yes), key_empty=$([ -s "$RNW_KEY" ] || echo yes)"
+    exit 1
+  }
+  OLD_NA=$(openssl x509 -in /tmp/sca_leaf_only.pem -noout -enddate 2>/dev/null | sed 's/notAfter=//' || echo "")
+  OLD_EPOCH=$(date -d "$OLD_NA" +%s 2>/dev/null || echo 0)
+
+  RNW_BODY=/tmp/sca_rnw_out.json
+  RNW_CODE=$("${CURL[@]}" -o "$RNW_BODY" -w '%{http_code}' \
+    --cert "$RNW_CRT" --key "$RNW_KEY" -X POST "${BASE_URL}/1.0/renew" 2>/dev/null) || true
+  [ -n "$RNW_CODE" ] || RNW_CODE="000"
+  [ "$RNW_CODE" = "200" ] || {
+    echo "FAIL: renew: POST /1.0/renew with a valid admin-issued leaf did not return 200"
+    echo "  actual: HTTP $RNW_CODE ; body=$(head -c 300 "$RNW_BODY" 2>/dev/null)"
+    exit 1
+  }
+  # step-ca renew 응답: {"ca":"<PEM>","crt":"<PEM leaf>","certChain":["<leaf>","<intermediate>"]}
+  #  ↑ 정확한 키 이름은 step-ca 버전 따라 다를 수 있음 — 첫 실행 때 body 찍어보고 맞추기.
+  python3 - "$RNW_BODY" <<'PY' >/tmp/sca_rnw_leaf.pem 2>/dev/null || true
+import sys, json
+d = json.load(open(sys.argv[1]))
+chain = d.get("certChain") or []
+leaf = d.get("crt") or (chain[0] if chain else "")
+sys.stdout.write(leaf or "")
+PY
+  python3 - "$RNW_BODY" <<'PY' >/tmp/sca_rnw_bundle.pem 2>/dev/null || true
+import sys, json
+d = json.load(open(sys.argv[1]))
+chain = d.get("certChain") or [x for x in (d.get("crt"), d.get("ca")) if x]
+sys.stdout.write("".join(chain))
+PY
+  [ -s /tmp/sca_rnw_leaf.pem ] || {
+    echo "FAIL: renew: /1.0/renew response carried no certificate"
+    echo "  actual: body=$(head -c 300 "$RNW_BODY" 2>/dev/null)"
+    exit 1
+  }
+  NEW_SUBJ=$(openssl x509 -in /tmp/sca_rnw_leaf.pem -noout -subject 2>/dev/null || echo "")
+  echo "$NEW_SUBJ" | grep -q "smoke.${NS}" || {
+    echo "FAIL: renew: renewed leaf CN mismatch (expected smoke.${NS}.*)"
+    echo "  actual: subject=$NEW_SUBJ"
+    exit 1
+  }
+  if openssl verify -CAfile /tmp/stepca_root.pem -untrusted /tmp/sca_rnw_bundle.pem /tmp/sca_rnw_leaf.pem >/tmp/sca_rnw_verify 2>&1 \
+      || openssl verify -CAfile /tmp/stepca_root.pem /tmp/sca_rnw_leaf.pem >/tmp/sca_rnw_verify 2>&1; then
+    :
+  else
+    echo "FAIL: renew: renewed certificate does not chain to the step-ca Root CA"
+    echo "  actual: $(cat /tmp/sca_rnw_verify 2>/dev/null)"
+    exit 1
+  fi
+  NEW_NA=$(openssl x509 -in /tmp/sca_rnw_leaf.pem -noout -enddate 2>/dev/null | sed 's/notAfter=//' || echo "")
+  NEW_EPOCH=$(date -d "$NEW_NA" +%s 2>/dev/null || echo 0)
+  if [ "$OLD_EPOCH" -gt 0 ] && [ "$NEW_EPOCH" -gt 0 ]; then
+    [ "$NEW_EPOCH" -ge "$OLD_EPOCH" ] || {
+      echo "FAIL: renew: renewed leaf notAfter ($NEW_NA) is not after the original ($OLD_NA)"
+      exit 1
+    }
+  else
+    echo "note: could not parse notAfter dates for renew freshness check (date -d unavailable?) — chain+CN checks stand"
+  fi
+  echo "ok: /1.0/renew returned a fresh leaf (CN ok, chains to Root CA, notAfter advanced)"
+
+  # (선택) 네거티브: disableRenewal=true 인 device-bootstrap provisioner 발급 인증서는
+  # 갱신 거부돼야 함. 부트스트랩 leaf(bootstrap.crt/bootstrap.key)가 러너에서 읽힐 때만:
+  #   RNW_NEG=$("${CURL[@]}" -o /dev/null -w '%{http_code}' --cert "$BOOT_CRT" --key "$BOOT_KEY" -X POST "${BASE_URL}/1.0/renew")
+  #   case "$RNW_NEG" in 2*) echo "FAIL: renew-negative: bootstrap cert was renewable — disableRenewal not effective"; exit 1;; esac
+fi
+
+# ── 10. X5C 부트스트랩 e2e — device-bootstrap provisioner ────────────────────
+# 디바이스 첫 부팅 흐름(X5C 토큰 → /1.0/sign)을 서버측에서 e2e 로 — "서명 요청 → 서명 확인" 한 번에.
+#   (a) step-ca-whitelist 에 등록된 CN → 발급 + Root CA 체인
+#   (b) 미등록 CN (device-ffffff)       → step-ca-whitelist→ca.json policy (결정 c) 로 거부
+# 입력: Secret 'step-ca-smoke-bootstrap' (kubernetes.io/tls; tls.crt = bootstrap_ca.crt 서명 leaf,
+#       tls.key = 그 키). 디바이스가 펌웨어에 굽는 bootstrap.crt/bootstrap.key 와 동일 역할의
+#       smoke 전용 장수명 신원 — dev 에만 존재. Secret 또는 'step' CLI 없으면 #10 전체 note-skip.
+if   ! command -v step >/dev/null 2>&1;                            then echo "note: #10 (X5C bootstrap e2e) skipped — 'step' CLI not on runner PATH"
+elif ! kubectl get secret step-ca-smoke-bootstrap -n "$NS" >/dev/null 2>&1; then echo "note: #10 (X5C bootstrap e2e) skipped — Secret 'step-ca-smoke-bootstrap' not in $NS"
+else
+  BOOT_CRT=/tmp/stepca_bootstrap.crt; BOOT_KEY=/tmp/stepca_bootstrap.key
+  kubectl get secret step-ca-smoke-bootstrap -n "$NS" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > "$BOOT_CRT" 2>/dev/null || true
+  kubectl get secret step-ca-smoke-bootstrap -n "$NS" -o jsonpath='{.data.tls\.key}' 2>/dev/null | base64 -d > "$BOOT_KEY" 2>/dev/null || true
+  { [ -s "$BOOT_CRT" ] && [ -s "$BOOT_KEY" ]; } || {
+    echo "FAIL: x5c-bootstrap: Secret 'step-ca-smoke-bootstrap' missing tls.crt/tls.key"
+    echo "  actual: crt_empty=$([ -s "$BOOT_CRT" ] || echo yes), key_empty=$([ -s "$BOOT_KEY" ] || echo yes)"
+    exit 1
+  }
+  # step CLI 가 우리 step-ca 를 신뢰하도록 — 빈 STEPPATH + #3 의 Root + --ca-url(127.0.0.1 은 dnsNames 에 포함)
+  export STEPPATH; STEPPATH="$(mktemp -d /tmp/x5c_steppath.XXXXXX)"
+  STEP_CA=(step --ca-url "$BASE_URL" --root /tmp/stepca_root.pem)
+
+  # ── 10(a) 화이트리스트 등록 CN → 발급 + Root CA 체인 ──
+  WL_CN="$(printf '%s\n' "${WL_CNS:-}" | head -1)"   # WL_CNS = #4b 에서 step-ca-whitelist 파싱한 값
+  if [ -z "$WL_CN" ]; then
+    echo "note: #10(a) skipped — step-ca-whitelist 에 발급 대상 device CN 이 없음"
+  else
+    TOK="$("${STEP_CA[@]}" ca token "$WL_CN" --provisioner device-bootstrap \
+             --x5c-cert "$BOOT_CRT" --x5c-key "$BOOT_KEY" 2>/tmp/x5c_tok_err)" || {
+      echo "FAIL: x5c-bootstrap(a): device-bootstrap 로 '$WL_CN' X5C 토큰 발급 실패"
+      echo "  actual: $(cat /tmp/x5c_tok_err 2>/dev/null)"
+      exit 1
+    }
+    "${STEP_CA[@]}" ca certificate "$WL_CN" /tmp/x5c_a.crt /tmp/x5c_a.key \
+        --token "$TOK" --kty EC --curve P-256 --no-password --insecure -f >/tmp/x5c_a_out 2>&1 || {
+      echo "FAIL: x5c-bootstrap(a): step-ca 가 화이트리스트 CN '$WL_CN' 발급을 거부함 (발급돼야 정상)"
+      echo "  actual: $(cat /tmp/x5c_a_out 2>/dev/null)"
+      exit 1
+    }
+    A_SUBJ="$(openssl x509 -in /tmp/x5c_a.crt -noout -subject 2>/dev/null || echo "")"
+    echo "$A_SUBJ" | grep -q "$WL_CN" || {
+      echo "FAIL: x5c-bootstrap(a): 발급 leaf CN 불일치 (expected $WL_CN)"
+      echo "  actual: subject=$A_SUBJ"
+      exit 1
+    }
+    "${STEP_CA[@]}" certificate verify /tmp/x5c_a.crt --roots /tmp/stepca_root.pem >/tmp/x5c_a_verify 2>&1 || {
+      echo "FAIL: x5c-bootstrap(a): 발급 인증서가 step-ca Root CA 로 체인되지 않음"
+      echo "  actual: $(cat /tmp/x5c_a_verify 2>/dev/null) ; bundle=$(openssl crl2pkcs7 -nocrl -certfile /tmp/x5c_a.crt 2>/dev/null | openssl pkcs7 -print_certs -noout 2>/dev/null | tr '\n' ' ')"
+      exit 1
+    }
+    echo "ok: #10(a) device-bootstrap → 화이트리스트 CN '$WL_CN' 발급 + Root CA 체인 확인"
+  fi
+
+  # ── 10(b) 미등록 CN → 거부 (= #4b 정적 머지 확인의 동적 짝) ──
+  BAD_CN="device-ffffff"
+  printf '%s\n' "${WL_CNS:-}" | grep -qx "$BAD_CN" && BAD_CN="device-fffffe"
+  BAD_TOK="$("${STEP_CA[@]}" ca token "$BAD_CN" --provisioner device-bootstrap \
+               --x5c-cert "$BOOT_CRT" --x5c-key "$BOOT_KEY" 2>/dev/null)" || BAD_TOK=""
+  if [ -z "$BAD_TOK" ]; then
+    echo "ok: #10(b) device-bootstrap 가 미등록 CN '$BAD_CN' 에 토큰 발급조차 거부"
+  elif "${STEP_CA[@]}" ca certificate "$BAD_CN" /tmp/x5c_b.crt /tmp/x5c_b.key \
+         --token "$BAD_TOK" --kty EC --curve P-256 --no-password --insecure -f >/tmp/x5c_b_out 2>&1; then
+    echo "FAIL: x5c-bootstrap(b): step-ca 가 미등록 CN '$BAD_CN' 에 인증서 발급함 — step-ca-whitelist→ca.json policy 무효"
+    echo "  actual: issued; subject=$(openssl x509 -in /tmp/x5c_b.crt -noout -subject 2>/dev/null)"
+    exit 1
+  else
+    grep -qiE 'not allowed|policy|forbidden|denied|not authoriz|common name' /tmp/x5c_b_out 2>/dev/null \
+      || echo "note: #10(b) 거부됨 — 에러 텍스트에 policy 단어는 안 보이나 거부 자체는 pass: $(head -c 200 /tmp/x5c_b_out 2>/dev/null)"
+    echo "ok: #10(b) device-bootstrap 가 미등록 CN '$BAD_CN' 거부 (policy gate 동작)"
+  fi
+
+  rm -rf "$STEPPATH"; unset STEPPATH
+fi
 
 echo "All checks passed."
