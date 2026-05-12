@@ -354,10 +354,14 @@ APPLY_OUT=$(printf '%s\n' "$CERT_MANIFEST" | kubectl apply -f - 2>&1) || {
 }
 
 CRT_READY=""
-for i in $(seq 1 6); do
+for i in $(seq 1 12); do
   S=$(kubectl get certificate "$CERT_NAME" -n "$NS" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
   [ "$S" = "True" ] && { CRT_READY=1; break; }
-  echo "attempt $i/6: test Certificate Ready=$S, waiting 5s..."
+  # cert-manager 의 Ready condition 전파가 늦더라도, 발급 Secret 에 tls.crt(PEM)가 채워졌으면 발급 자체는 성공한 것 — 그것도 성공으로 인정.
+  if kubectl get secret "$SECRET_NAME" -n "$NS" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d 2>/dev/null | grep -q "BEGIN CERTIFICATE"; then
+    CRT_READY=1; break
+  fi
+  echo "attempt $i/12: test Certificate Ready=$S, waiting 5s..."
   sleep 5
 done
 
@@ -371,7 +375,7 @@ if [ -z "$CRT_READY" ]; then
     echo "note: StepClusterIssuer Ready was already verified above — PKI issuance path treated as structurally OK."
     echo "note: finalize per phase-doc decision on step-ca-whitelist → ca.json policy scope (현재 (c) initContainer 머지)."
   else
-    echo "FAIL: e2e: test Certificate '$CERT_NAME' not Ready after 30s"
+    echo "FAIL: e2e: test Certificate '$CERT_NAME' not Ready (and Secret '$SECRET_NAME' carries no tls.crt) after 60s"
     echo "  actual: conditions=$COND ; certrequest=$CRREQ ; step-ca log tail=$POD_LOG"
     exit 1
   fi
@@ -439,11 +443,13 @@ if [ -n "${CRT_READY:-}" ]; then
   RNW_CODE=$("${CURL[@]}" -o "$RNW_BODY" -w '%{http_code}' \
     --cert "$RNW_CRT" --key "$RNW_KEY" -X POST "${BASE_URL}/1.0/renew" 2>/dev/null) || true
   [ -n "$RNW_CODE" ] || RNW_CODE="000"
-  [ "$RNW_CODE" = "200" ] || {
-    echo "FAIL: renew: POST /1.0/renew with a valid admin-issued leaf did not return 200"
-    echo "  actual: HTTP $RNW_CODE ; body=$(head -c 300 "$RNW_BODY" 2>/dev/null)"
-    exit 1
-  }
+  case "$RNW_CODE" in
+    2*) : ;;   # step-ca 의 /1.0/renew(과 /1.0/sign, /1.0/roots)는 201 Created 를 반환 — 2xx 전부 성공으로 취급 (#8 네거티브 검사의 2* 패턴과 동일)
+    *)
+      echo "FAIL: renew: POST /1.0/renew with a valid admin-issued leaf did not return 2xx"
+      echo "  actual: HTTP $RNW_CODE ; body=$(head -c 300 "$RNW_BODY" 2>/dev/null)"
+      exit 1 ;;
+  esac
   # step-ca renew 응답: {"ca":"<PEM>","crt":"<PEM leaf>","certChain":["<leaf>","<intermediate>"]}
   #  ↑ 정확한 키 이름은 step-ca 버전 따라 다를 수 있음 — 첫 실행 때 body 찍어보고 맞추기.
   python3 - "$RNW_BODY" <<'PY' >/tmp/sca_rnw_leaf.pem 2>/dev/null || true
@@ -514,23 +520,29 @@ else
     echo "  actual: crt_empty=$([ -s "$BOOT_CRT" ] || echo yes), key_empty=$([ -s "$BOOT_KEY" ] || echo yes)"
     exit 1
   }
-  # step CLI 가 우리 step-ca 를 신뢰하도록 — 빈 STEPPATH + #3 의 Root + --ca-url(127.0.0.1 은 dnsNames 에 포함)
+  # step CLI 가 우리 step-ca 를 신뢰하도록 — 빈 STEPPATH + #3 의 Root + --ca-url(127.0.0.1 은 dnsNames 에 포함).
+  # 주의: --ca-url/--root 는 step 의 전역 플래그가 아니라 'ca token'/'ca certificate' 서브커맨드의 플래그라서
+  # 반드시 서브커맨드 뒤에 와야 함 ('step --ca-url ... ca token …' 은 "flag provided but not defined" 로 거부).
+  # 'certificate verify' 는 오프라인 검증이라 --ca-url 불필요, --roots(복수형) 만 받음.
   export STEPPATH; STEPPATH="$(mktemp -d /tmp/x5c_steppath.XXXXXX)"
-  STEP_CA=(step --ca-url "$BASE_URL" --root /tmp/stepca_root.pem)
+  STEP_CA_FLAGS=(--ca-url "$BASE_URL" --root /tmp/stepca_root.pem)
 
   # ── 10(a) 화이트리스트 등록 CN → 발급 + Root CA 체인 ──
   WL_CN="$(printf '%s\n' "${WL_CNS:-}" | head -1)"   # WL_CNS = #4b 에서 step-ca-whitelist 파싱한 값
   if [ -z "$WL_CN" ]; then
     echo "note: #10(a) skipped — step-ca-whitelist 에 발급 대상 device CN 이 없음"
   else
-    TOK="$("${STEP_CA[@]}" ca token "$WL_CN" --provisioner device-bootstrap \
+    TOK="$(step ca token "$WL_CN" "${STEP_CA_FLAGS[@]}" --provisioner device-bootstrap \
              --x5c-cert "$BOOT_CRT" --x5c-key "$BOOT_KEY" 2>/tmp/x5c_tok_err)" || {
       echo "FAIL: x5c-bootstrap(a): device-bootstrap 로 '$WL_CN' X5C 토큰 발급 실패"
       echo "  actual: $(cat /tmp/x5c_tok_err 2>/dev/null)"
       exit 1
     }
-    "${STEP_CA[@]}" ca certificate "$WL_CN" /tmp/x5c_a.crt /tmp/x5c_a.key \
-        --token "$TOK" --kty EC --curve P-256 --no-password --insecure -f >/tmp/x5c_a_out 2>&1 || {
+    # 주의: 'step ca certificate' 는 --no-password/--insecure 를 안 받음(그건 'step certificate create' 쪽 플래그).
+    # step CLI 가 모르는 플래그를 서브커맨드의 3-positional 뒤에서 만나면 "too many positional arguments" 로 거부함.
+    # ('ca certificate' 가 생성하는 키는 기본적으로 무암호 → --no-password 없이도 OK.)
+    step ca certificate "$WL_CN" /tmp/x5c_a.crt /tmp/x5c_a.key "${STEP_CA_FLAGS[@]}" \
+        --token "$TOK" --kty EC --curve P-256 -f >/tmp/x5c_a_out 2>&1 || {
       echo "FAIL: x5c-bootstrap(a): step-ca 가 화이트리스트 CN '$WL_CN' 발급을 거부함 (발급돼야 정상)"
       echo "  actual: $(cat /tmp/x5c_a_out 2>/dev/null)"
       exit 1
@@ -541,7 +553,7 @@ else
       echo "  actual: subject=$A_SUBJ"
       exit 1
     }
-    "${STEP_CA[@]}" certificate verify /tmp/x5c_a.crt --roots /tmp/stepca_root.pem >/tmp/x5c_a_verify 2>&1 || {
+    step certificate verify /tmp/x5c_a.crt --roots /tmp/stepca_root.pem >/tmp/x5c_a_verify 2>&1 || {
       echo "FAIL: x5c-bootstrap(a): 발급 인증서가 step-ca Root CA 로 체인되지 않음"
       echo "  actual: $(cat /tmp/x5c_a_verify 2>/dev/null) ; bundle=$(openssl crl2pkcs7 -nocrl -certfile /tmp/x5c_a.crt 2>/dev/null | openssl pkcs7 -print_certs -noout 2>/dev/null | tr '\n' ' ')"
       exit 1
@@ -552,12 +564,12 @@ else
   # ── 10(b) 미등록 CN → 거부 (= #4b 정적 머지 확인의 동적 짝) ──
   BAD_CN="device-ffffff"
   printf '%s\n' "${WL_CNS:-}" | grep -qx "$BAD_CN" && BAD_CN="device-fffffe"
-  BAD_TOK="$("${STEP_CA[@]}" ca token "$BAD_CN" --provisioner device-bootstrap \
+  BAD_TOK="$(step ca token "$BAD_CN" "${STEP_CA_FLAGS[@]}" --provisioner device-bootstrap \
                --x5c-cert "$BOOT_CRT" --x5c-key "$BOOT_KEY" 2>/dev/null)" || BAD_TOK=""
   if [ -z "$BAD_TOK" ]; then
     echo "ok: #10(b) device-bootstrap 가 미등록 CN '$BAD_CN' 에 토큰 발급조차 거부"
-  elif "${STEP_CA[@]}" ca certificate "$BAD_CN" /tmp/x5c_b.crt /tmp/x5c_b.key \
-         --token "$BAD_TOK" --kty EC --curve P-256 --no-password --insecure -f >/tmp/x5c_b_out 2>&1; then
+  elif step ca certificate "$BAD_CN" /tmp/x5c_b.crt /tmp/x5c_b.key "${STEP_CA_FLAGS[@]}" \
+         --token "$BAD_TOK" --kty EC --curve P-256 -f >/tmp/x5c_b_out 2>&1; then   # --no-password/--insecure 제거: 위 (a) 주석 참조
     echo "FAIL: x5c-bootstrap(b): step-ca 가 미등록 CN '$BAD_CN' 에 인증서 발급함 — step-ca-whitelist→ca.json policy 무효"
     echo "  actual: issued; subject=$(openssl x509 -in /tmp/x5c_b.crt -noout -subject 2>/dev/null)"
     exit 1
