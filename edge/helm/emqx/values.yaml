@@ -46,6 +46,14 @@ emqxConfig:
   EMQX_MQTT__PEER_CERT_AS_USERNAME: "cn"
   EMQX_AUTHORIZATION__NO_MATCH: "deny"
   EMQX_AUTHORIZATION__SOURCES: '[{type = file, enable = true, path = "/etc/emqx/acl/acl.conf"}]'
+  # Dashboard / management HTTP API: bind to pod loopback only. Service still advertises
+  # port 18083 so `kubectl port-forward svc/emqx :18083` keeps working (kubelet enters the
+  # pod's netns and connects to localhost), but in-cluster traffic via the Service/NodePort
+  # path lands on pod eth0:18083 → not listening → TCP RST. Combined with the readiness
+  # probe being tcpSocket on mqtts (kubelet probes pod IP, no longer needs dashboard:18083),
+  # the dashboard surface is reachable only by callers who already hold pods/portforward or
+  # pods/exec on this Pod (== anyone who can read every Secret here anyway).
+  EMQX_DASHBOARD__LISTENERS__HTTP__BIND: "127.0.0.1:18083"
 
 resources:
   requests:
