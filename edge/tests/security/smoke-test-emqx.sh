@@ -165,16 +165,26 @@ done
 AUTH=(-H "Authorization: Bearer $TOKEN")
 
 # ── 1. listener 구성 ────────────────────────────────────────────────────────
-LISTENERS=$("${CURL[@]}" "${AUTH[@]}" "${DASH_URL}/api/v5/listeners" 2>/dev/null || echo "")
-CACERTFILE=$(echo "$LISTENERS" | python3 -c "
+# 5.8.x: list endpoint 은 summary 만 (running 이 status.running 아래, ssl_options 비포함).
+# 전체 ssl_options 는 detail endpoint(/api/v5/listeners/<id>) 에만 inline 으로 옴.
+SSL_DETAIL=$("${CURL[@]}" "${AUTH[@]}" "${DASH_URL}/api/v5/listeners/ssl:default" 2>/dev/null || echo "")
+LISTENERS=$("${CURL[@]}" "${AUTH[@]}"  "${DASH_URL}/api/v5/listeners"             2>/dev/null || echo "")
+CACERTFILE=$(python3 - "$SSL_DETAIL" "$LISTENERS" <<'PY' 2>/tmp/emqx_listener_err
 import sys, json
-data = json.load(sys.stdin)
-ls = data if isinstance(data, list) else data.get('data', [])
-ssl = next((x for x in ls if x.get('type') == 'ssl' or str(x.get('id','')).startswith('ssl:')), None)
-tcp = next((x for x in ls if x.get('type') == 'tcp' or str(x.get('id','')).startswith('tcp:')), None)
+ssl_raw, ls_raw = sys.argv[1], sys.argv[2]
+try:
+    ssl = json.loads(ssl_raw) if ssl_raw else {}
+except Exception:
+    ssl = {}
+try:
+    ls = json.loads(ls_raw) if ls_raw else []
+    if not isinstance(ls, list):
+        ls = ls.get('data', [])
+except Exception:
+    ls = []
 errs = []
-if not ssl:
-    errs.append('no ssl listener')
+if not ssl or ssl.get('type') != 'ssl':
+    errs.append('no ssl:default detail (%r)' % (ssl.get('code') if isinstance(ssl, dict) else type(ssl).__name__))
 else:
     if not ssl.get('running'):
         errs.append('ssl listener not running: %r' % ssl.get('running'))
@@ -183,23 +193,34 @@ else:
         errs.append('ssl verify=%r (want verify_peer)' % so.get('verify'))
     if so.get('fail_if_no_peer_cert') is not True:
         errs.append('fail_if_no_peer_cert=%r (want true)' % so.get('fail_if_no_peer_cert'))
-if tcp and (tcp.get('running') is True or tcp.get('enable') is True):
-    errs.append('plaintext tcp listener still active: running=%r enable=%r' % (tcp.get('running'), tcp.get('enable')))
+tcp = next((x for x in ls if x.get('type') == 'tcp' or str(x.get('id','')).startswith('tcp:')), None)
+if tcp:
+    tcp_running = (tcp.get('status') or {}).get('running')
+    if tcp_running is True or tcp.get('enable') is True:
+        errs.append('plaintext tcp listener still active: status.running=%r enable=%r' % (tcp_running, tcp.get('enable')))
 if errs:
     sys.exit('; '.join(errs))
-print((ssl.get('ssl_options', {}) or {}).get('cacertfile', ''))
-" 2>/tmp/emqx_listener_err) || {
+print(((ssl.get('ssl_options', {}) or {}).get('cacertfile', '')))
+PY
+) || {
   echo "FAIL: listener: mqtts/plaintext listener config mismatch"
-  echo "  actual: $(cat /tmp/emqx_listener_err 2>/dev/null) — listeners=$(echo "$LISTENERS" | head -c 600)"
+  echo "  actual: $(cat /tmp/emqx_listener_err 2>/dev/null) — ssl_detail=$(echo "$SSL_DETAIL" | head -c 400) — listeners=$(echo "$LISTENERS" | head -c 300)"
   exit 1
 }
-echo "$LISTENERS" | grep -q '"peer_cert_as_username"' && {
-  echo "$LISTENERS" | grep -q '"peer_cert_as_username"[[:space:]]*:[[:space:]]*"cn"' || {
-    echo "FAIL: listener: peer_cert_as_username is set but not 'cn'"
-    echo "  actual: $(echo "$LISTENERS" | grep -o '"peer_cert_as_username"[^,}]*')"
-    exit 1
-  }
-} || echo "note: peer_cert_as_username not exposed in /api/v5/listeners — relying on ACL round-trip (#3b) to validate cn-as-username"
+# peer_cert_as_username 검사: 5.8.x 부터 broker-wide config (mqtt.peer_cert_as_username)
+# 로 옮겨갔음 — listener 응답엔 안 나옴. /api/v5/configs/mqtt 로 확인.
+MQTT_CONF=$("${CURL[@]}" "${AUTH[@]}" "${DASH_URL}/api/v5/configs/mqtt" 2>/dev/null || echo "")
+echo "$MQTT_CONF" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    sys.exit('cannot parse mqtt cfg: %s' % e)
+v = d.get('peer_cert_as_username', '')
+sys.exit(0 if v == 'cn' else ('peer_cert_as_username=%r (want cn) — mqtt cfg=%s' % (v, str(d)[:200])))
+" 2>/tmp/emqx_pcau_err || {
+  echo "note: $(cat /tmp/emqx_pcau_err 2>/dev/null) — relying on ACL round-trip (#3b) to validate cn-as-username"
+}
 
 # ── 2. 클라이언트 인증서 없이 mqtts 접속 → 실패해야 함 ──────────────────────
 NOCERT_OUT=$(mosquitto_pub -h 127.0.0.1 -p "$MQTTS_PORT" --cafile "$CA_FILE" --insecure \
@@ -281,17 +302,15 @@ SRV_SUBJ=$(openssl x509 -in "$SRV_LEAF" -noout -subject 2>/dev/null || echo "")
 SRV_SAN=$(openssl x509 -in "$SRV_LEAF" -noout -ext subjectAltName 2>/dev/null \
           || openssl x509 -in "$SRV_LEAF" -noout -text 2>/dev/null | grep -A2 -i "subject alternative name" || echo "")
 echo "$SRV_SUBJ" | grep -q "emqx.${NS}.svc" || {
-  echo "FAIL: server-cert: subject CN expected emqx.${NS}.svc.cluster.local"
+  echo "FAIL: server-cert: subject CN expected emqx.${NS}.svc.<cluster-domain>"
   echo "  actual: subject=$SRV_SUBJ"
   rm -f "$SRV_BUNDLE" "$SRV_LEAF"; exit 1
 }
-for want in emqx-headless emqx-nodeport; do
-  echo "$SRV_SAN" | grep -q "$want" || {
-    echo "FAIL: server-cert: SAN missing '$want' DNS name"
-    echo "  actual: SAN=$(echo "$SRV_SAN" | tr '\n' ' ')"
-    rm -f "$SRV_BUNDLE" "$SRV_LEAF"; exit 1
-  }
-done
+echo "$SRV_SAN" | grep -qE 'DNS:emqx([,[:space:]]|$)' || {
+  echo "FAIL: server-cert: SAN missing short 'emqx' DNS name"
+  echo "  actual: SAN=$(echo "$SRV_SAN" | tr '\n' ' ')"
+  rm -f "$SRV_BUNDLE" "$SRV_LEAF"; exit 1
+}
 if [ "$ACTIVE_ENV" = "prod" ]; then
   echo "$SRV_SAN" | grep -qE '192\.168\.0\.10[23]' || {
     echo "FAIL: server-cert: SAN missing prod EMQX node IP (192.168.0.102/103)"

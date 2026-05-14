@@ -143,8 +143,10 @@ func renderACL(devices []string) string {
 		fmt.Fprintf(&b, "{allow, {user, %q}, publish, [\"sensors/%s/occupancy\"]}.\n", d, d)
 	}
 	b.WriteString("\n")
-	b.WriteString("{allow, {user, \"edge-gateway\"}, subscribe, [\"$share/edge-gw/sensors/+/occupancy\"]}.\n")
-	b.WriteString("{allow, {user, \"telegraf\"}, subscribe, [\"$share/telegraf/sensors/+/occupancy\"]}.\n")
+	// EMQX strips the $share/<group>/ prefix before matching the topic
+	// against ACL rules, so subscribers see only "sensors/+/occupancy".
+	b.WriteString("{allow, {user, \"edge-gateway\"}, subscribe, [\"sensors/+/occupancy\"]}.\n")
+	b.WriteString("{allow, {user, \"telegraf\"}, subscribe, [\"sensors/+/occupancy\"]}.\n")
 	b.WriteString("\n")
 	b.WriteString("{deny, all}.\n")
 	return b.String()

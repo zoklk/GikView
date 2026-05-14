@@ -1,0 +1,30 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.tls.secretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.tls.secretName }}
+  commonName: emqx.{{ .Release.Namespace }}.svc.{{ .Values.certificate.clusterDomain }}
+  dnsNames:
+    - emqx
+    - emqx.{{ .Release.Namespace }}.svc.{{ .Values.certificate.clusterDomain }}
+  {{- with .Values.certificate.ipAddresses }}
+  ipAddresses:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  duration: {{ .Values.certificate.duration }}
+  renewBefore: {{ .Values.certificate.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  issuerRef:
+    name: {{ .Values.certificate.issuerName }}
+    kind: StepClusterIssuer
+    group: certmanager.step.sm

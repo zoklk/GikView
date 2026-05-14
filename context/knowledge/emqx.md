@@ -36,8 +36,8 @@ extraVolumeMounts:
 
 messaging phase 의 평문 listener 를 mTLS 로 전환 (helm release 동일 `emqx`, values 만 변경).
 
-- **listener**: `mqtts:8883` 활성(`verify = verify_peer`, `fail_if_no_peer_cert = true`), 평문 `mqtt:1883` 비활성. `peer_cert_as_username = cn` — 클라이언트 인증서 CN 을 username 으로 → ACL 매칭 키.
-- **서버 신원**(`ssl_options.certfile`/`keyfile`): `emqx-server-tls` Secret 의 `tls.crt`/`tls.key`. `tls.crt` 는 `leaf + Intermediate` 번들(cert-manager 가 StepClusterIssuer 발급분의 체인을 채움). CN=`emqx.gikview.svc.cluster.local`, SAN 에 headless/nodeport DNS + 노드 IP(환경별).
+- **listener**: `mqtts:8883` 활성(`verify = verify_peer`, `fail_if_no_peer_cert = true`), 평문 `mqtt:1883` 비활성. `peer_cert_as_username = cn` — 클라이언트 인증서 CN 을 username 으로 → ACL 매칭 키. **env var path 주의**: EMQX 5.8.6 schema 는 이 필드를 broker-wide `mqtt.peer_cert_as_username` 에만 둠 → 차트는 `EMQX_MQTT__PEER_CERT_AS_USERNAME` 으로 주입. listener-scoped 변형 (`EMQX_LISTENERS__SSL__DEFAULT__PEER_CERT_AS_USERNAME` 또는 `..._SSL_OPTIONS__PEER_CERT_AS_USERNAME`) 은 양쪽 다 `unknown_env_vars` 로 떨어지고 적용 안 됨 (관측 확인 — pod log `username: edge-gateway` AUTHZ 라인이 증거).
+- **서버 신원**(`ssl_options.certfile`/`keyfile`): `emqx-server-tls` Secret 의 `tls.crt`/`tls.key`. `tls.crt` 는 `leaf + Intermediate` 번들(cert-manager 가 StepClusterIssuer 발급분의 체인을 채움). CN=`emqx.<ns>.svc.<cluster-domain>`, SAN 에 동일 FQDN + short name `emqx`. cluster-domain 환경별 (dev = `alpha.nexus.local`, prod = `cluster.local`).
 - **클라이언트 검증 trust anchor**(`ssl_options.cacertfile`): `emqx-server-tls` 의 `ca.crt` = StepClusterIssuer `caBundle` = step-ca **Root CA**. Intermediate-only 아님 — 의도적(docs ADR 12번; EMQX 5.8.6 `partial_chain` 부재). → 부트스트랩 인증서(`leaf → Bootstrap CA → Root`)도 TLS 검증은 통과 → 차단은 ACL.
 - **인가**: file authorizer 활성 + `emqx-acl` ConfigMap 을 `/etc/emqx/acl/acl.conf` 로 마운트, `authorization.sources` 첫 entry, `no_match = deny`. `emqx-acl` 은 mapping-generator 가 `device-room-mapping` 에서 생성(docs ADR 5번).
 - **Reloader annotation**(StatefulSet metadata): `secret.reloader.stakater.com/reload: emqx-server-tls`, `configmap.reloader.stakater.com/reload: emqx-acl`.

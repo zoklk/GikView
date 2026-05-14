@@ -58,7 +58,7 @@
   - device CN 명명 규약 `^device-[a-f0-9]{6}$`. X5C provisioner 가 발급 가능한 CN 은 `step-ca-whitelist` ConfigMap (mapping-generator 가 생성) 으로 제한 + device leaf 템플릿은 **DNS 타입 SAN 만** 허용 (비-DNS SAN 요청 거부) — 강제 메커니즘·부팅 머지 흐름은 `context/knowledge/step-ca.md` "Policy" 절.
   - 부트스트랩 경로 폐기/회전은 Bootstrap CA 통째 교체로 (CRL/OCSP 미도입 — docs ADR 7·13번; `context/knowledge/step-ca.md`).
 - Argo CD sync-wave: `0`.
-- **디바이스-facing 노출**: step-ca 서버 인증서 SAN (= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입) 은 DNS-only — ESP8266 BearSSL 이 IP SAN 을 검증하지 않아 노드 IP 를 넣어도 의미 없음. 운영 trust 전략은 후속 ADR. end-to-end 동작은 ESP8266 펌웨어 클라이언트 (아래 후속 작업) 후 성립 — 본 phase 검증 범위는 K8s 워크로드 발급 경로 (cert-manager + step-issuer → step-ca).
+- **디바이스-facing 노출**: step-ca 서버 인증서 SAN (= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입) 은 운영 trust 명 (ClusterIP svc DNS) + loopback (`127.0.0.1`) 만. 노드 IP·외부 IP 는 안 넣음 — ESP8266 BearSSL 이 IP SAN 을 검증하지 않아 의미 없음. `127.0.0.1` 은 스모크/디버깅 경로 (`kubectl port-forward → 127.0.0.1:19000`) 의 step CLI TLS 검증을 위해 필요. 운영 trust 전략은 후속 ADR. end-to-end 동작은 ESP8266 펌웨어 클라이언트 (아래 후속 작업) 후 성립 — 본 phase 검증 범위는 K8s 워크로드 발급 경로 (cert-manager + step-issuer → step-ca).
 - **Port**:
   - `https: 9000` — step-ca REST API (`/1.0/sign`, `/1.0/renew`). ClusterIP (step-issuer/cert-manager 내부용) + NodePort `step-ca-nodeport` (고정 `nodePort: 31900`, `externalTrafficPolicy: Local`, `security` 노드). 외부 포트 매핑은 messaging.md 패턴 (공유기 포트포워딩).
 - **리소스**:
@@ -109,10 +109,12 @@
 ```erlang
     %% device-aabbcc 는 자기 토픽만 publish
     {allow, {user, "device-aabbcc"}, publish, ["sensors/device-aabbcc/occupancy"]}.
-    %% edge-gateway 는 shared subscription 권한
-    {allow, {user, "edge-gateway"}, subscribe, ["$share/edge-gw/sensors/+/occupancy"]}.
-    %% telegraf 는 별도 shared group
-    {allow, {user, "telegraf"}, subscribe, ["$share/telegraf/sensors/+/occupancy"]}.
+    %% edge-gateway / telegraf 는 shared subscription. ACL 매칭 시 EMQX 가
+    %% $share/<group>/ prefix 를 제거한 후 비교하므로 규칙엔 prefix 없이 쓴다
+    %% (클라이언트는 SUBSCRIBE 시 $share/edge-gw/... 그대로 보내고 EMQX 가 떼고 매칭).
+    {allow, {user, "edge-gateway"}, subscribe, ["sensors/+/occupancy"]}.
+    %% telegraf 는 별도 shared group (그룹명만 다름, ACL 입장에선 동일 토픽)
+    {allow, {user, "telegraf"}, subscribe, ["sensors/+/occupancy"]}.
     %% 그 외 거부
     {deny, all}.
 ```
@@ -142,8 +144,8 @@
   - `peer_cert_as_username = cn` 설정으로 클라이언트 인증서 CN 을 EMQX username 으로 매핑. ACL 규칙은 이 username 기준 매칭.
   - 기존 평문 `mqtt: 1883` listener 비활성화 (helm values 에서 enable: false). NodePort 도 mqtts 만 노출 — NodePort 번호는 `31884` (messaging.md / `context/knowledge/emqx.md`). 공유기: 외부포트 8883 → e-s2:31884, 8884 → e-s3:31884.
 - **서버 인증서**: Certificate 리소스 추가.
-  - commonName: `emqx.gikview.svc.cluster.local`
-  - dnsNames: `emqx`, `emqx.gikview.svc.cluster.local`, `emqx-headless.gikview.svc.cluster.local`, `*.emqx-headless.gikview.svc.cluster.local`, `emqx-nodeport.gikview.svc.cluster.local`
+  - commonName: `emqx.gikview.svc.<cluster-domain>` (dnsNames 와 동일하게 `.Values.certificate.clusterDomain` 으로 환경별 분리)
+  - dnsNames: `emqx`, `emqx.gikview.svc.<cluster-domain>`. cluster-domain 만 환경별 (dev = `alpha.nexus.local`, prod = `cluster.local`) — 차트가 `.Values.certificate.clusterDomain` 으로 주입. ClusterIP svc DNS 만 cert SAN 에 두는 이유는 실제 도달 트래픽이 svc 경유 (Telegraf/Edge-GW) 이고 headless/wildcard 는 dead SAN (노드간 통신 평문, pod-stable DNS 직접 접속 클라이언트 없음).
   - ipAddresses: `192.168.0.102`, `192.168.0.103` (prod) — dev 는 환경별 분리. 이 항목이 mTLS 서버 cert SAN IP 의 정본 (knowledge/emqx.md·cert-manager.md 는 이 값을 참조).
   - duration: `2160h`, renewBefore: `720h`
   - issuerRef: StepClusterIssuer

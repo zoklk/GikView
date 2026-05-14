@@ -12,7 +12,9 @@ image:
   # conventions.image_tag — the harness builds/pushes <registry>/<service>:<tag>.
   repository: ghcr.io/zoklk/mapping-generator
   tag: edge
-  pullPolicy: IfNotPresent
+  # `edge` is a mutable tag — Always so nodes don't keep a stale cached copy
+  # after a rebuild/push.
+  pullPolicy: Always
 
 # GHCR package is kept private; the imagePullSecret is a one-time per-env human
 # task — see context/phases/security.md → mapping-generator "이미지 레지스트리
