@@ -8,19 +8,44 @@ image:
 service:
   type: ClusterIP
   ports:
-    mqtt: 1883
     mqtts: 8883
     dashboard: 18083
     ekka: 4370
 
 nodePortService:
   nodePorts:
-    mqtt: 31883
     mqtts: 31884
+
+tls:
+  secretName: emqx-server-tls
+  mountPath: /etc/emqx/tls
+
+acl:
+  configMapName: emqx-acl
+  mountPath: /etc/emqx/acl
+
+certificate:
+  issuerName: step-cluster-issuer
+  duration: 2160h
+  renewBefore: 720h
+  clusterDomain: cluster.local
+  ipAddresses: []
 
 emqxConfig:
   EMQX_CLUSTER__DISCOVERY_STRATEGY: "dns"
   EMQX_CLUSTER__DNS__RECORD_TYPE: "srv"
+  EMQX_LISTENERS__TCP__DEFAULT__ENABLED: "false"
+  EMQX_LISTENERS__SSL__DEFAULT__BIND: "0.0.0.0:8883"
+  EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/etc/emqx/tls/tls.crt"
+  EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/etc/emqx/tls/tls.key"
+  EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE: "/etc/emqx/tls/ca.crt"
+  EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__VERIFY: "verify_peer"
+  EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__FAIL_IF_NO_PEER_CERT: "true"
+  EMQX_MQTT__PEER_CERT_AS_USERNAME: "cn"
+  EMQX_AUTHORIZATION__NO_MATCH: "deny"
+  EMQX_AUTHORIZATION__SOURCES: '[{type = file, enable = true, path = "/etc/emqx/acl/acl.conf"}]'
+  # Dashboard bound to loopback: reachable only via `kubectl port-forward` or pods/exec.
+  EMQX_DASHBOARD__LISTENERS__HTTP__BIND: "127.0.0.1:18083"
 
 resources:
   requests:

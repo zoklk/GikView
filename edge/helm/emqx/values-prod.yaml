@@ -6,8 +6,12 @@ emqxConfig:
 
 nodePortService:
   nodePorts:
-    mqtt: 31883
     mqtts: 31884
+
+certificate:
+  ipAddresses:
+    - 192.168.0.102
+    - 192.168.0.103
 
 resources:
   requests:

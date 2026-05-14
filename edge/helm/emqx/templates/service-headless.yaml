@@ -9,9 +9,6 @@ spec:
   selector:
     {{- include "emqx.selectorLabels" . | nindent 4 }}
   ports:
-    - name: mqtt
-      port: {{ .Values.service.ports.mqtt }}
-      protocol: TCP
     - name: mqtts
       port: {{ .Values.service.ports.mqtts }}
       protocol: TCP

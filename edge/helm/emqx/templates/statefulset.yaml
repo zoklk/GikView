@@ -5,6 +5,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "emqx.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.tls.secretName | quote }}
+    configmap.reloader.stakater.com/reload: {{ .Values.acl.configMapName | quote }}
 spec:
   serviceName: {{ .Chart.Name }}-headless
   replicas: {{ .Values.replicaCount }}
@@ -38,9 +41,6 @@ spec:
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
-            - name: mqtt
-              containerPort: {{ .Values.service.ports.mqtt }}
-              protocol: TCP
             - name: mqtts
               containerPort: {{ .Values.service.ports.mqtts }}
               protocol: TCP
@@ -50,6 +50,14 @@ spec:
             - name: ekka
               containerPort: {{ .Values.service.ports.ekka }}
               protocol: TCP
+          # Dashboard binds to loopback; kubelet probes pod IP, so probe mqtts instead.
+          readinessProbe:
+            tcpSocket:
+              port: mqtts
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
           env:
             - name: POD_NAME
               valueFrom:
@@ -68,6 +76,12 @@ spec:
               mountPath: /opt/emqx/log
             - name: tmp
               mountPath: /tmp
+            - name: emqx-tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            - name: emqx-acl
+              mountPath: {{ .Values.acl.mountPath }}
+              readOnly: true
       volumes:
         - name: emqx-data
           emptyDir: {}
@@ -75,3 +89,9 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        - name: emqx-tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        - name: emqx-acl
+          configMap:
+            name: {{ .Values.acl.configMapName }}

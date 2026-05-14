@@ -5,3 +5,13 @@ KSV-0125
 # KSV-0020 / KSV-0021 prefer uid/gid > 10000 — not applicable to this upstream image.
 AVD-KSV-0020
 AVD-KSV-0021
+
+# cert-manager webhook dynamic-serving cert RBAC — single named secret
+# (cert-manager-webhook-ca) get/list/watch/update/create. Upstream jetstack/cert-manager
+# vendored chart; not our code. KSV-0113 prefers no secret management at namespace scope.
+KSV-0041
+KSV-0048
+KSV-0049
+KSV-0056
+KSV-0113
+KSV-0114
