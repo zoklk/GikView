@@ -55,8 +55,8 @@
   - `device-bootstrap` (X5C, root = 부트스트랩 CA, `disableRenewal: true`, `defaultTLSCertDuration: 2160h`) — 정식 인증서 발급 전용.
   - `device-renewal` (X5C, root = Intermediate, `allowRenewalAfterExpiry: false`, `defaultTLSCertDuration: 2160h`) — 정식 인증서 갱신 전용.
   - `admin` (JWK) — step-issuer 연결, K8s 워크로드 발급용.
-  - device CN 명명 규약 `^device-[a-f0-9]{6}$`. X5C provisioner 가 발급 가능한 CN 은 `step-ca-whitelist` ConfigMap (mapping-generator 가 생성) 으로 제한 + device leaf 템플릿은 **DNS 타입 SAN 만** 허용 (비-DNS SAN 요청 거부) — 강제 메커니즘·부팅 머지 흐름은 `context/knowledge/step-ca.md` "Policy" 절.
-  - 부트스트랩 경로 폐기/회전은 Bootstrap CA 통째 교체로 (CRL/OCSP 미도입 — docs ADR 7·13번; `context/knowledge/step-ca.md`).
+  - device CN 명명 규약 `^device-[a-f0-9]{6}$`. X5C provisioner 가 발급 가능한 CN 은 `step-ca-whitelist` ConfigMap (mapping-generator wave `-1` 생성) 으로 제한 + device leaf 템플릿은 **DNS 타입 SAN 만** 허용 (비-DNS SAN 요청 거부) — 강제는 cert-template `{{ fail }}` 가드, 부팅 시 `merge-ca-config` initContainer 가 ca.json 에 머지 (결정 14번; rollout 트리거는 결정 15번).
+  - 부트스트랩 경로 폐기/회전은 Bootstrap CA 통째 교체로 — CRL/OCSP 미운용 (결정 7번, 결정 13번; 절차 `context/knowledge/step-ca.md`).
 - Argo CD sync-wave: `0`.
 - **디바이스-facing 노출**: step-ca 서버 인증서 SAN (= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입) 은 운영 trust 명 (ClusterIP svc DNS) + loopback (`127.0.0.1`) 만. 노드 IP·외부 IP 는 안 넣음 — ESP8266 BearSSL 이 IP SAN 을 검증하지 않아 의미 없음. `127.0.0.1` 은 스모크/디버깅 경로 (`kubectl port-forward → 127.0.0.1:19000`) 의 step CLI TLS 검증을 위해 필요. 운영 trust 전략은 후속 ADR. end-to-end 동작은 ESP8266 펌웨어 클라이언트 (아래 후속 작업) 후 성립 — 본 phase 검증 범위는 K8s 워크로드 발급 경로 (cert-manager + step-issuer → step-ca).
 - **Port**:
@@ -82,7 +82,7 @@
 - annotation 기반 명시적 매칭 (`secret.reloader.stakater.com/reload`, `configmap.reloader.stakater.com/reload`). auto-reload 미사용.
 - **본 phase 적용 대상은 EMQX + step-ca**:
   - EMQX — `secret.reloader.stakater.com/reload: emqx-server-tls` (서버 인증서 갱신), `configmap.reloader.stakater.com/reload: emqx-acl` (ACL 변경).
-  - step-ca — `configmap.reloader.stakater.com/reload: step-ca-whitelist` (CN 화이트리스트 변경 시 rollout — step-ca 는 ca.json template/templateData hot-reload 안 됨; 메커니즘은 `context/knowledge/step-ca.md` "Policy" 절).
+  - step-ca — `configmap.reloader.stakater.com/reload: step-ca-whitelist` (CN 화이트리스트 변경 시 rollout — step-ca 는 ca.json template/templateData hot-reload 안 됨; 메커니즘은 결정 14번·15번).
   - `telegraf-lookup` → Telegraf, Edge Gateway client cert 등의 Reloader annotation 은 해당 워크로드를 배포하는 후속 phase 에서 추가 (security 결정 8 번은 최종 상태 기준 — 본 phase 는 그 부분집합).
 - Argo CD sync-wave: `-3` (cert-manager 와 병행). 다른 컴포넌트가 reloader annotation 을 달기 전에 떠 있어야 첫 변경 즉시 감지.
 - **리소스**:
@@ -118,10 +118,10 @@
     %% 그 외 거부
     {deny, all}.
 ```
-  - `step-ca-whitelist` (key `whitelist.json` = 허용 device CN JSON 배열): step-ca 가 부팅 시 X5C provisioner `options.x509.templateData.allowedCNs` 에 머지 — 강제·머지 메커니즘은 `context/knowledge/step-ca.md` "Policy" 절.
+  - `step-ca-whitelist` (key `whitelist.json` = 허용 device CN JSON 배열): step-ca 가 부팅 시 `merge-ca-config` initContainer 가 ca.json 의 각 X5C provisioner `options.x509.templateData.allowedCNs` 에 머지. 가드 로직(`template` 문자열)은 `step-ca-config` ConfigMap 의 정적 부분, 화이트리스트 데이터만 mapping-generator 가 주입 — `step-ca-whitelist` 가 비면 `allowedCNs: []` → 모든 device cert 발급 0 (fail-closed). 강제 메커니즘 근거는 결정 14번.
   - `telegraf-lookup`: Telegraf processor.starlark 또는 processor.lookup 이 참조. device_id → room_id 매핑 csv. (Telegraf 는 후속 phase 배포 — 본 phase 에선 ConfigMap 만 미리 생성됨.)
 - **스케줄**: CronJob `*/15 * * * *` (15 분 주기). 디바이스 추가 빈도 낮아 충분.
-- **rollout trigger**: ConfigMap 갱신 → Reloader 가 의존 워크로드 rollout 트리거 (본 phase: EMQX `emqx-acl`, step-ca `step-ca-whitelist`; Telegraf `telegraf-lookup` 은 후속 phase 부터). step-ca StatefulSet 의 Reloader annotation 은 엄브렐라 차트의 post-render strategic-merge patch 로 부착 — 상세·기각 대안은 `context/knowledge/step-ca.md`.
+- **rollout trigger**: ConfigMap 갱신 → Reloader 가 의존 워크로드 rollout 트리거 (본 phase: EMQX `emqx-acl`, step-ca `step-ca-whitelist`; Telegraf `telegraf-lookup` 은 후속 phase 부터). step-ca StatefulSet 의 Reloader annotation 은 엄브렐라 차트의 post-render strategic-merge patch 로 부착 (메커니즘 근거·기각 대안은 결정 15번). step-ca 는 ca.json `template`/`templateData` hot-reload 가 안 되어 `step-ca-whitelist` 변경 시 rollout 필요, rollout 중 약 5~10초 발급 거부 윈도우. **prod ArgoCD 환경**: ArgoCD `helm` 소스 post-renderer 미실행 → annotation 누락 → whitelist 변경 후 step-ca 재적용은 ArgoCD app refresh 또는 수동 rollout.
 - **권한**: ConfigMap get/list/update/create 가능한 ServiceAccount (init Job 과 CronJob 공용).
 - **Argo CD sync-wave: `-1`** (step-ca·emqx 보다 먼저). 차트가 `device-room-mapping` ConfigMap + CronJob (`*/15 * * * *`) + 일회성 init Job (배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca (wave 0) initContainer / emqx (wave 1) ACL 마운트 시 이미 존재.
 - **이미지 레지스트리 사전 작업** (사람 1 회, 환경마다): GHCR 패키지 private 유지 → `docker login ghcr.io` (push: `write:packages` PAT) + gikview 네임스페이스에 `ghcr-pull` Secret (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io …`, `read:packages` 전용 PAT) 사전 생성. 차트가 ServiceAccount 의 imagePullSecrets 로 참조.
@@ -154,11 +154,11 @@
   - `/etc/emqx/acl/acl.conf` 경로로 ConfigMap volumeMount.
   - authorization sources 의 첫 entry 로 `{type = file, path = "/etc/emqx/acl/acl.conf"}` 등록.
   - `no_match = deny` 로 미매칭 시 거부.
-- **CA bundle / 체인 (값)**: listener `ssl_options.cacertfile` = `emqx-server-tls` Secret 의 `ca.crt` (= StepClusterIssuer `caBundle` = step-ca **Root CA**); EMQX 가 서버로서 제시하는 체인 (`certfile`) = `emqx-server-tls` 의 `tls.crt` (= leaf + Intermediate). Root 를 trust anchor 로 쓰는 이유·EMQX 5.8.6 `partial_chain` 부재·클라이언트의 `leaf + Intermediate` 제시 요구는 `context/knowledge/emqx.md` "mTLS 구성" · `context/knowledge/step-ca.md` (docs ADR 12번). 부트스트랩 인증서 차단은 TLS 단이 아니라 ACL `no_match = deny`.
+- **CA bundle / 체인 (값)**: listener `ssl_options.cacertfile` = `emqx-server-tls` Secret 의 `ca.crt` (= StepClusterIssuer `caBundle` = step-ca **Root CA**); EMQX 가 서버로서 제시하는 체인 (`certfile`) = `emqx-server-tls` 의 `tls.crt` (= leaf + Intermediate). Root 를 trust anchor 로 쓰는 이유·EMQX 5.8.6 `partial_chain` 부재·클라이언트의 `leaf + Intermediate` 제시 요구는 결정 12번, `context/knowledge/emqx.md`, `context/knowledge/step-ca.md`. 부트스트랩 인증서 차단은 TLS 단이 아니라 ACL `no_match = deny`.
 - **Reloader annotation** (StatefulSet metadata):
   - `secret.reloader.stakater.com/reload: "emqx-server-tls"` — 서버 인증서 갱신 시 rollout.
   - `configmap.reloader.stakater.com/reload: "emqx-acl"` — ACL 변경 시 rollout.
-- **client_id 충돌**: 같은 CN 으로 두 클라이언트 접속 시 (docs ADR 7번 "유령 인증서 동시 publish") 본 phase 에서는 default 동작 유지, visibility 단계에서 동일 CN 접속 감지 alert 추가.
+- **client_id 충돌**: 같은 CN 으로 두 클라이언트 접속 시 (결정 7번 "유령 인증서 동시 publish") 본 phase 에서는 default 동작 유지, visibility 단계에서 동일 CN 접속 감지 alert 추가.
 - Argo CD sync-wave: `1` (step-ca 다음; `emqx-acl` 은 mapping-generator wave `-1` 의 init Job 이 이미 생성).
 - **리소스 / Port** 는 messaging phase 와 동일. 본 phase 에서 변경하지 않음.
 

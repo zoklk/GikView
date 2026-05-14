@@ -113,3 +113,38 @@
 - **이유**: 부트스트랩 인증서는 모든 디바이스 펌웨어에 동일하게 굽히고 ESP8266은 Flash Encryption/Secure Boot 미적용이라 추출 가능 → *유출 전제* 저신뢰 크리덴셜. 이를 운영/워크로드 인증서를 보증하는 Intermediate가 서명하면 "Intermediate 서명 = 신뢰된 운영 신원" 의미가 희석되고, Root를 클라이언트 인증에 쓰는 다른 mTLS 표면이 생기면 그곳의 유효 클라이언트가 됨. 별도 CA면 부트스트랩 크리덴셜이 구조적으로 "step-ca `device-bootstrap`에 말 거는 것" 한 가지로 스코프되고 폐기/회전 폭발 반경이 부트스트랩 경로에 국한됨.
 - **트레이드오프**: 사전 준비에 CA 1개 + 키 오프라인 보관 추가. 유출 시 9대 재플래시 필요(`disableRenewal: true`라 7일 내 미온라인 배치는 어차피 재플래시 대상이므로 운영 절차와 겹침). EMQX TLS 단 차단은 본 결정으로 달성 안 됨(결정 12번) — ACL 몫.
 - **관련**: 결정 2번(단일 Intermediate CA 구조 — Bootstrap CA는 end-entity 인증서를 발급하지 않는 별도 Root-서명 CA), 결정 4번, 결정 7번, 결정 12번
+
+### 14. CN 화이트리스트 강제는 cert-template `{{ fail }}` 가드로 (2026-05-14)
+
+- **선택**: `device-bootstrap`·`device-renewal` X5C provisioner 의 인증서 템플릿(`options.x509.template`) 안에서 `{{ fail }}` 가드 + `templateData.allowedCNs` 패턴으로 화이트리스트 강제. 가드 로직(template 문자열)은 `step-ca-config` ConfigMap 의 정적 부분, 화이트리스트 데이터만 mapping-generator 가 `step-ca-whitelist` ConfigMap 으로 주입 → 부팅 시 `merge-ca-config` initContainer 가 `ca.json` 의 `templateData.allowedCNs` 에 머지. 가드는 요청 CN 과 모든 SAN 을 `allowedCNs` 와 대조, 또한 모든 SAN 타입이 `dns` 인지도 검사 (비-DNS SAN 요청 거부)
+- **대안**: `provisioners[].policy` 블록 (CRD-shape policy), authority-level policy 활성화, K8s admission webhook 으로 외부 강제
+- **이유**: `provisioners[].policy` 는 OSS step-ca 가 silently ignore — hosted Smallstep Certificate Manager 전용 (구조체에 필드 없음, `authority/provisioner/options.go` 의 `X509Options.AllowedNames`/`DeniedNames` 가 `json:"-"`). authority-level policy 는 admin(JWK) provisioner 에도 적용돼 step-issuer 가 K8s 워크로드(EMQX·Edge Gateway·Telegraf) cert 발급을 못 함. cert-template `{{ fail }}` 가드는 step-ca 가 정식 지원하는 메커니즘(template 함수 라이브러리) + 본 use case(특정 CN 만 발급, DNS-only SAN) 에 정확히 부합. 외부 webhook 은 RBAC 확대 + 새 컴포넌트 추가 — 결정 4번의 PKI 단순성 원칙과 어긋남
+- **트레이드오프**: `template`/`templateData` 는 hot-reload 불가 — `step-ca-whitelist` 변경 시 step-ca StatefulSet rollout 필요(결정 15번), rollout 중 약 5~10초 발급 거부 윈도우. 가드가 비면(`allowedCNs: []`) 모든 device cert 발급 0 — fail-closed (실제로는 mapping-generator 가 sync-wave -1 에 항상 먼저 생성). 펌웨어 CSR 제약: CN = `device-XXXXXX`, SAN 없거나 같은 값의 DNS SAN 만 — IP SAN 넣으면 발급 실패
+- **관련**: 결정 2번, 결정 4번, 결정 5번, `context/knowledge/step-ca.md`
+
+### 15. step-ca rollout 트리거는 Reloader + post-render annotation 으로 (2026-05-14)
+
+- **선택**: `step-ca-whitelist` ConfigMap 변경 → Reloader (결정 8번) 가 step-ca StatefulSet 의 annotation (`configmap.reloader.stakater.com/reload: step-ca-whitelist`) 을 보고 rollout 트리거. step-certificates 1.30.x 차트가 워크로드 metadata annotation 훅을 노출 안 해, 이 annotation 부착은 엄브렐라 차트의 post-render(kustomize strategic-merge patch) 으로 수행
+- **대안**: mapping-generator 가 직접 `kubectl rollout restart statefulset/step-ca` 호출, helm post-hook 으로 매번 rollout 강제, step-ca 가 ConfigMap 을 직접 watch
+- **이유**: 직접 `kubectl rollout` 호출은 (1) mapping-generator 가 `statefulsets/patch` RBAC 필요 → 보안 면적 확장, (2) EMQX(Reloader 패턴) 와 메커니즘 비대칭 → 운영 일관성 깨짐, (3) mapping-generator 가 whitelist 변경 감지 로직 자체 구현 필요 (현재는 Reloader 의 resourceVersion 기반 자동), (4) 스모크 `smoke-test-step-ca.sh #4b` 가 annotation hard-check 로 검증 → 즉시 스모크 실패. step-ca 직접 watch 는 `ca.json` `template`/`templateData` 가 hot-reload 미지원이라 watch 해도 의미 없음 (rollout 까지 필요). helm post-hook 은 매 sync 마다 rollout → 인증서 발급 빈도가 sync 빈도에 종속됨
+- **트레이드오프**: ArgoCD 의 `helm` source 는 post-renderer 를 실행 안 함 → prod 가 ArgoCD 로 sync 될 땐 Reloader annotation 부착이 누락 (하네스 `/deploy` 에선 부착됨). prod 에서 whitelist 변경 후 step-ca 재적용은 ArgoCD app refresh 또는 수동 rollout. step-certificates 차트가 metadata annotation 훅을 노출하기 전까지의 임시 갭 — upstream 차트 업데이트 시 post-render 제거 가능
+- **관련**: 결정 5번, 결정 8번, 결정 14번, `context/knowledge/step-ca.md`, `context/knowledge/reloader.md`
+
+### 16. step-ca 컨테이너 이미지를 자체 빌드 (cap_net_bind_service 제거) (2026-05-14)
+
+- **선택**: 업스트림 `cr.smallstep.com/smallstep/step-ca:0.30.2` 베이스로 자체 빌드 이미지 `ghcr.io/zoklk/step-ca:edge`. 빌드 단계에서 step-ca 바이너리의 `cap_net_bind_service` file-capability xattr 를 `setcap -r` 로 제거 + Alpine sh/busybox/jq 그대로 (`merge-ca-config` initContainer 가 같은 이미지 사용 — 추가 이미지 풀 불필요)
+- **대안**: 업스트림 이미지 그대로 + `securityContext.allowPrivilegeEscalation: true`(= `no_new_privs=0`), `securityContext.capabilities.add: ["NET_BIND_SERVICE"]` 로 ambient capability 부여, capability 가 필요한 다른 우회 (chroot 등)
+- **이유**: step-ca 가 비특권 포트 `:9000` 만 바인딩 — `cap_net_bind_service`(특권 포트 <1024 바인딩 권한) 자체가 불필요. 그러나 file capability xattr 가 남으면 `no_new_privs=1`(= `allowPrivilegeEscalation: false`, trivy KSV-0001 강제값) 아래서 바이너리 execve 가 EPERM 으로 실패(exit 255, crashloop). `allowPrivilegeEscalation: true` 는 다른 컴포넌트(cert-manager/step-issuer/reloader)의 KSV-0001 준수와 비대칭 → 보안 baseline 회귀. ambient capability 추가는 file cap=0 일 때 OS 가 무시 + step-ca 가 `:9000` 만 쓰니 무용지물
+- **트레이드오프**: 자체 GHCR 가 private — `ghcr-pull` Secret 사전 생성 (mapping-generator 환경별 사전 작업과 동일). step-ca Pod 이 `default` ServiceAccount 로 이 Secret 을 `imagePullSecrets` 로 참조. 업스트림 0.30.x 패치 추적 시 빌드 워크플로 한 단계 추가 — `edge/docker/step-ca/Dockerfile` 의 base tag 변경 + `docker buildx build --push`. 빌드 호스트의 multi-arch buildx 셋업은 mapping-generator 와 공유 → 추가 비용 0
+- **관련**: 결정 2번, `context/knowledge/step-ca.md`, `edge/docker/step-ca/Dockerfile`
+
+### 17. ESP8266 펌웨어 PKI 라이브러리 조합 (2026-05-14)
+
+- **선택**: ESP8266 펌웨어의 mTLS + 부트스트랩/갱신 흐름을 세 라이브러리 조합으로:
+  - **BearSSL** (ESP8266 Arduino 코어 표준 `WiFiClientSecure` 의 백엔드) — mTLS 핸드셰이크 + HTTPS POST. `setClientECCert(cert, key)` 로 디바이스 클라이언트 인증서/키 주입, `setTrustAnchors(rootCA)` 로 서버(EMQX·step-ca) trust anchor 주입
+  - **uECC** (micro-ecc, MIT) — ECDSA P-256 키 페어 생성 (flash ~3KB). BearSSL 의 ECDSA 와 독립적, signing 은 BearSSL 이 담당
+  - **자체 ASN.1 DER CSR(PKCS#10) 인코딩** — 펌웨어 단 직접 구현(~130줄), Subject CN + ECDSA P-256 public key + (옵션) DNS SAN extension 만 다룸
+- **대안**: mbedTLS 풀스택, Mongoose OS, 표준 EST 클라이언트(`simpleenroll`/`simplereenroll`), ESP8266 표준 `WiFiClientSecure` 만 사용
+- **이유**: 표준 `WiFiClientSecure`(BearSSL 기반) 는 TLS 핸드셰이크와 HTTPS 만 제공, 키 페어 생성·CSR 인코딩·EST 같은 PKI 프리미티브를 노출 안 함 — CSR 부분을 펌웨어가 직접 책임. mbedTLS 풀스택은 ESP8266 메모리 제약상 추가 불가 (SRAM ~80KB, 운영 mTLS 안정화 시점 free heap ~18.4KB, EST 호출 중 일시 ~12.5KB — mbedTLS 가 추가 30~50KB heap 잡으면 OOM). 표준 EST(RFC 7030)는 step-ca 미지원(결정 2번) → EST 클라이언트 라이브러리 무의미, step-ca REST API(`/1.0/sign`, `/1.0/renew`) 를 BearSSL HTTPS POST 로 직접 호출. uECC 는 P-256 키 생성만 위한 최소 라이브러리 — BearSSL 과 충돌 없음, signing 은 BearSSL 의 `setClientECCert()` 가 자체 처리. 자체 CSR 인코딩은 ASN.1 DER 의 좁은 부분집합만 다루므로 검증 가능한 규모(디버깅: `openssl asn1parse -inform DER`)
+- **트레이드오프**: CSR 인코딩 코드를 펌웨어가 직접 maintain — mbedTLS 가 제공할 일을 자체 구현. ASN.1 DER 인코딩 버그 시 step-ca 에러 메시지가 모호(`"x509: malformed certificate"`) → `openssl asn1parse` 디버깅 절차 필요. uECC 의 P-256 외 곡선 사용 시 추가 작업 — 현재 본 프로젝트는 ECDSA P-256 통일(step-ca Intermediate, cert-manager Certificate, K8s 워크로드, 디바이스 모두). BearSSL 의 IP SAN 미검증(결정 11번) — 펌웨어 trust 전략(`setInsecure` 또는 DNS 명 매핑)은 별도 ADR 또는 펌웨어 README
+- **관련**: 결정 2번, 결정 4번, 결정 11번, `context/knowledge/step-ca.md`
