@@ -1,0 +1,30 @@
+{{- /*
+Static local PV for the badger DB, pinned to the security node. The step-certificates StatefulSet's
+volumeClaimTemplate (name "database", storageClass local-storage, size = step-certificates.ca.db.size)
+binds to this. reclaimPolicy Retain so the issuance history / serials survive a helm uninstall+redeploy.
+Mirrors edge/helm/influxdb/templates/pv.yaml. capacity reads step-certificates.ca.db.size so the PV
+and the PVC request always match. Host dir chown 1000:1000 is a 1x/env operator task (context/knowledge/step-ca.md).
+*/}}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.persistence.pvName }}
+  labels:
+    {{- include "step-ca.labels" . | nindent 4 }}
+spec:
+  capacity:
+    storage: {{ index .Values "step-certificates" "ca" "db" "size" }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Values.persistence.storageClassName }}
+  local:
+    path: {{ .Values.persistence.hostPath }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - {{ .Values.persistence.nodeHostname }}

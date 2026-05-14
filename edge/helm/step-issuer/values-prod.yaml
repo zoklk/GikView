@@ -1,0 +1,15 @@
+# prod (edge cluster).
+# nodeSelector: environments.prod.node_selectors.security = e-s1.
+# url: inherits the cluster.local default from values.yaml.
+#
+# caBundle / kid are PLACEHOLDERS. The prod step-ca has its own offline-generated
+# Root CA and "admin" JWK provisioner — fill these when prod step-ca is provisioned:
+#   caBundle: $(base64 -w0 prod_root_ca.crt)
+#   kid:      $(jq -r .kid prod_admin_jwk.pub.json)
+step-issuer:
+  nodeSelector:
+    kubernetes.io/hostname: e-s1
+
+stepClusterIssuer:
+  caBundle: "REPLACE_WITH_PROD_ROOT_CA_BASE64"
+  kid: "REPLACE_WITH_PROD_ADMIN_JWK_KID"

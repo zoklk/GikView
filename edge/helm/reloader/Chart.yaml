@@ -1,0 +1,10 @@
+apiVersion: v2
+name: reloader
+description: stakater/reloader v1.4.16 umbrella — gikview-scoped, annotation-based
+type: application
+version: 0.1.0
+appVersion: "v1.4.16"
+dependencies:
+  - name: reloader
+    version: "2.2.11"
+    repository: "https://stakater.github.io/stakater-charts"

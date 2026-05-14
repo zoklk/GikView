@@ -1,0 +1,18 @@
+apiVersion: certmanager.step.sm/v1beta1
+kind: StepClusterIssuer
+metadata:
+  name: {{ .Values.stepClusterIssuer.name }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  url: {{ .Values.stepClusterIssuer.url | quote }}
+  caBundle: {{ .Values.stepClusterIssuer.caBundle | quote }}
+  provisioner:
+    name: {{ .Values.stepClusterIssuer.provisionerName | quote }}
+    kid: {{ .Values.stepClusterIssuer.kid | quote }}
+    passwordRef:
+      name: {{ .Values.stepClusterIssuer.provisionerPasswordSecret.name | quote }}
+      namespace: {{ .Values.stepClusterIssuer.provisionerPasswordSecret.namespace | default .Release.Namespace | quote }}
+      key: {{ .Values.stepClusterIssuer.provisionerPasswordSecret.key | quote }}

@@ -1,0 +1,48 @@
+{{- /*
+One-shot bootstrap: runs once on install/upgrade so emqx-acl,
+step-ca-whitelist and telegraf-lookup exist before step-ca (sync-wave 0) and
+emqx (sync-wave 1) come up. Same image/command as the CronJob. Argo CD treats
+the helm post-install hook as a PostSync resource, so the next sync-wave waits
+for it to complete.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mapping-generator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "mapping-generator.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "mapping-generator.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mapping-generator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # On BackoffLimitExceeded the Job controller deletes failed pods and
+          # their logs vanish; this copies the last lines of stdout into pod
+          # status so the failure stays debuggable.
+          terminationMessagePolicy: FallbackToLogsOnError
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

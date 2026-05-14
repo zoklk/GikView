@@ -1,0 +1,48 @@
+# prod (edge cluster).
+# nodeSelector: environments.prod.node_selectors.security = e-s1.
+#
+# caJson.* below are PLACEHOLDERS — the prod step-ca has its own offline-generated CA + admin JWK
+# (same pattern as edge/helm/step-issuer/values-prod.yaml). Fill the PUBLIC bits when prod step-ca is
+# provisioned:
+#   deviceBootstrapRoots:   $(base64 -w0 prod_bootstrap_ca.crt)
+#   deviceRenewalRoots:     $(base64 -w0 prod_intermediate_ca.crt)
+#   adminJwk.key:           contents of prod_admin_jwk.pub.json verbatim (public JWK from `step crypto
+#                           jwk create` — use/kty/crv/alg/kid + x,y = EC P-256 public-key coords, base64url;
+#                           don't hand-write x/y. kid must match step-issuer's StepClusterIssuer provisioner.kid)
+# adminJwk.encryptedKey stays "" — this file is committed to a public repo, so the PBES2-wrapped admin
+# private JWK must NOT live here (offline GPU brute-force of the provisioner password = admin takeover).
+# Instead pre-create it off-band as a Secret (the merge initContainer injects it into ca.json at boot):
+#   kubectl create secret generic step-ca-admin-jwk -n gikview --from-file=encrypted-key=prod_admin_jwk.priv.json
+# Also pre-create step-ca-certs / step-ca-secrets / step-ca-ca-password / step-issuer-provisioner-password
+# and chown the host dir 1000:1000 (context/knowledge/step-ca.md).
+step-certificates:
+  nodeSelector:
+    kubernetes.io/hostname: e-s1
+  ca:
+    db:
+      size: 2Gi
+
+nodePort:
+  number: 31900
+
+persistence:
+  storageClassName: local-storage
+  pvName: step-ca-pv-prod
+  hostPath: /mnt/ssd/step-ca
+  nodeHostname: e-s1
+
+caJson:
+  # dnsNames inherits the cluster.local default from values.yaml (DNS-only; node IP not added —
+  # BearSSL doesn't validate IP SANs; the device-facing trust name is a follow-up ADR).
+  deviceBootstrapRoots: "REPLACE_WITH_PROD_BOOTSTRAP_CA_BASE64"
+  deviceRenewalRoots: "REPLACE_WITH_PROD_INTERMEDIATE_CA_BASE64"
+  adminJwk:
+    key:
+      use: sig
+      kty: EC
+      crv: P-256
+      alg: ES256
+      kid: "REPLACE_WITH_PROD_ADMIN_JWK_KID"   # must match step-issuer's StepClusterIssuer provisioner.kid
+      x: "REPLACE_WITH_PROD_ADMIN_JWK_X"
+      "y": "REPLACE_WITH_PROD_ADMIN_JWK_Y"   # "y" MUST stay quoted — go-yaml (YAML 1.1) parses a bare y/n key as a boolean
+    encryptedKey: ""   # injected at boot from Secret step-ca-admin-jwk (key: encrypted-key) — see header

@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: step-ca
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/zoklk/GikView.git
+    targetRevision: dev
+    path: edge/helm/step-ca
+    helm:
+      releaseName: step-ca
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gikview
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ServerSideDiff=true
+      - RespectIgnoreDifferences=true
+  # The step-certificates StatefulSet carries a volumeClaimTemplate that kube-controller-manager
+  # mutates after creation; without this, ArgoCD shows a permanent OutOfSync (cf. influxdb.yaml).
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      name: step-ca
+      namespace: gikview
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates
+      managedFieldsManagers:
+        - kube-controller-manager

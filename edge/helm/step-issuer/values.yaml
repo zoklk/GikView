@@ -1,0 +1,64 @@
+# Umbrella chart values.
+#
+# "step-issuer:" — passed to the upstream smallstep/step-issuer subchart
+#                  (controller only). Env-specific nodeSelector in values-<env>.yaml.
+# "stepClusterIssuer:" — input for templates/stepclusterissuer.yaml (this chart's
+#                  own template). caBundle / kid are per-environment (each env runs
+#                  its own step-ca with its own offline-generated Root CA + admin JWK),
+#                  so they live in values-<env>.yaml. url defaults to the prod
+#                  domain suffix (cluster.local); dev overrides it.
+step-issuer:
+  replicaCount: 1
+  metrics:
+    enabled: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  # Upstream chart ships only runAsUser/runAsGroup on the manager container,
+  # which trips trivy KSV-0001/0003/0004/0012/0014/0030/0104/0106/0118. The
+  # subchart wires .Values.securityContext / .Values.podSecurityContext through
+  # verbatim, so harden them here. (/manager is a controller-runtime binary; it
+  # holds no on-disk state, so readOnlyRootFilesystem is safe.)
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  # Our cert-manager runs in the gikview namespace, not the chart-default
+  # "cert-manager". The chart's approver ClusterRoleBinding subject must match,
+  # or CertificateRequests targeting StepClusterIssuer stay unapproved
+  # (disableApprovalCheck is left false).
+  certManager:
+    serviceAccount:
+      name: cert-manager
+      namespace: gikview
+
+stepClusterIssuer:
+  name: step-cluster-issuer
+  url: "https://step-ca.gikview.svc.cluster.local:9000"
+  provisionerName: admin
+  # base64 -w0 of the step-ca Root CA cert (public material). Set per-env.
+  caBundle: ""
+  # JWK thumbprint of the "admin" provisioner (jq -r .kid admin_jwk.pub.json). Set per-env.
+  kid: ""
+  # Secret pre-created by an operator (value == step-ca "admin" provisioner password).
+  # StepClusterIssuer is cluster-scoped, so passwordRef.namespace is required by the
+  # CRD; it defaults to the release namespace (gikview) when left empty here.
+  provisionerPasswordSecret:
+    name: step-issuer-provisioner-password
+    namespace: ""
+    key: password

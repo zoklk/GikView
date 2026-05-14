@@ -24,3 +24,10 @@ logs/
 
 # 개발환경 helm value파일
 edge/helm/*/values-dev.yaml
+
+# 테스트용 키
+admin_jwk*
+bootstrap_ca*
+intermediate_ca*
+root_ca*
+smoke-bootstrap*
