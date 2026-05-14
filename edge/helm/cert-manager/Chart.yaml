@@ -1,6 +1,6 @@
 apiVersion: v2
 name: cert-manager
-description: cert-manager v1.20.2 umbrella — CRDs installed, external step-issuer only
+description: cert-manager v1.20.2 umbrella (CRDs installed, external step-issuer only)
 type: application
 version: 0.1.0
 appVersion: "v1.20.2"

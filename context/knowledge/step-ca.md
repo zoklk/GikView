@@ -291,6 +291,19 @@ shred -u root_ca_key intermediate_ca_key bootstrap_ca_key admin_jwk.priv.json   
 # *.crt 는 공개 자료 — root_ca.crt 는 step-issuer caBundle / 디바이스 trust 에 재사용하니 보관
 ```
 
+git 에 올라가는 것은 공개 부분만:
+
+  1. edge/helm/step-issuer/values-prod.yaml
+    - stepClusterIssuer.caBundle = base64 -w0 prod_root_ca.crt
+    - stepClusterIssuer.kid = jq -r .kid prod_admin_jwk.pub.json
+  2. edge/helm/step-ca/values-prod.yaml
+    - caJson.deviceBootstrapRoots = base64 -w0 prod_bootstrap_ca.crt
+    - caJson.deviceRenewalRoots = base64 -w0 prod_intermediate_ca.crt
+    - caJson.adminJwk.key = prod_admin_jwk.pub.json 의 use/kty/crv/alg/kid/x/y 그대로 (특히 y 키는 따옴표 유지 — YAML 1.1 boolean 충돌)
+    - caJson.adminJwk.encryptedKey 는 "" 그대로 (merge initContainer 가 Secret 에서 채움)
+  3. edge/helm/mapping-generator/values-prod.yaml
+    - deviceRoomMapping 에 실제 디바이스 라인 추가 (스모크 엔트리 device-aaaaaa: room-a-9-9 는 유지)
+
 step-ca 의 `device-bootstrap` provisioner 가 `bootstrap_ca.crt` 를 X5C root 로 등록 → 디바이스가
 부트스트랩 인증서로 서명한 JWT 를 보내면 step-ca 가 검증 후 정식 인증서 발급.
 

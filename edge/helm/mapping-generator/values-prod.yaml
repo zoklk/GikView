@@ -1,8 +1,5 @@
-# prod (edge cluster) — environments.prod.node_selectors.security = e-s1.
 nodeSelector:
   kubernetes.io/hostname: e-s1
 
-# Single source of truth (device_id -> room_id). Smoke entry only for now —
-# add real devices as new lines below.
 deviceRoomMapping:
   device-aaaaaa: room-a-9-9

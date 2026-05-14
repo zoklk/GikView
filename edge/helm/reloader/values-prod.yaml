@@ -1,4 +1,3 @@
-# prod (edge cluster) — environments.prod.node_selectors.security = e-s1.
 reloader:
   reloader:
     deployment:

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: step-ca
-description: step-ca 0.30.2 umbrella — Intermediate CA via existingSecrets, chart-rendered ca.json, CN-whitelist merge initContainer, NodePort exposure + local PV
+description: step-ca 0.30.2 umbrella with Intermediate CA via existingSecrets, chart-rendered ca.json, whitelist merge initContainer, NodePort exposure, local PV
 type: application
 version: 0.1.0
 appVersion: "0.30.2"

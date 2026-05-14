@@ -1,8 +1,3 @@
-{{- /*
-Re-derives emqx-acl / step-ca-whitelist / telegraf-lookup every 15 min so
-device additions in device-room-mapping propagate without a redeploy. Output
-writes are idempotent — a no-op run changes nothing.
-*/}}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

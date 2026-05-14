@@ -1,13 +1,7 @@
 {{- /*
-step-ca-config ConfigMap — holds ca.json, the *static* config. The X5C device provisioners carry
-options.x509.templateData.allowedCNs == [] here; the merge initContainer fills it from the
-step-ca-whitelist ConfigMap at boot, and the static x5cLeafTemplate's {{ "{{ fail }}" }} guard reads
-it to enforce the device-CN whitelist (decision c — OSS step-ca has no per-provisioner policy).
-Named "step-ca-config" to match what the step-certificates subchart mounts as the `config` volume
-({fullname}-config, fullname=step-ca via nameOverride). In existingSecrets mode the subchart does NOT
-render this ConfigMap, so the umbrella does. Env-specific bits (X5C roots, admin JWK, dnsNames) come
-from .Values.caJson (values-<env>.yaml). ca.json keys: root/crt/key point at the operator-pre-created
-step-ca-certs (RO /home/step/certs) and step-ca-secrets (RO /home/step/secrets) Secrets.
+ca.json static config. Name matches the subchart's `config` volume ({fullname}-config).
+In existingSecrets mode the subchart skips rendering it, so the umbrella does.
+allowedCNs starts empty; the merge initContainer fills it from step-ca-whitelist at boot.
 */}}
 apiVersion: v1
 kind: ConfigMap

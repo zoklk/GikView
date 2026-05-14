@@ -1,58 +1,30 @@
-# step-ca — umbrella over smallstep/step-certificates 1.30.1.
-#
-# Mode: existingSecrets. The CA cert/key/password are operator-pre-created Secrets (prod can't carry
-# the private key/passwords in committed values). existingSecrets mode does NOT render the ca.json
-# ConfigMap, so this umbrella renders it itself (templates/configmap-config.yaml) from the git-tracked
-# `caJson` values below — ca.json stays declarative. inject/bootstrap are off (the chart hard-errors
-# if existingSecrets is combined with either).
-#
-# Operator pre-creates, per env, off-band (see context/knowledge/step-ca.md):
-#   step-ca-certs        Secret: root_ca.crt, intermediate_ca.crt   -> /home/step/certs
-#   step-ca-secrets      Secret: intermediate_ca_key                -> /home/step/secrets
-#   step-ca-ca-password  Secret: password                           -> /home/step/secrets/passwords/password (--password-file)
-# This umbrella renders: step-ca-config ConfigMap (ca.json), step-ca-nodeport Service, the local PV,
-#   and post-renders the StatefulSet's Reloader annotation (kustomization.yaml + post-render.sh).
-
 step-certificates:
-  # nameOverride: step-ca makes {fullname}=step-ca -> StatefulSet/Service/PVC/Secret names all
-  # step-ca-*, and app.kubernetes.io/name=step-ca matches the harness label selector
-  # (conventions.label_selector = app.kubernetes.io/name={service}).
   nameOverride: step-ca
   kind: StatefulSet
   replicaCount: 1
   image:
-    # Self-built (edge/docker/step-ca/Dockerfile): the upstream cr.smallstep.com/smallstep/step-ca
-    # image with the cap_net_bind_service file capability stripped from the binary — without that,
-    # the binary can't be execve'd under no_new_privs (containerSecurityContext.allowPrivilegeEscalation:
-    # false → `exec /usr/local/bin/step-ca: operation not permitted`, exit 255). The 0.30.2 version pin
-    # (== chart 1.30.1 appVersion) lives in the Dockerfile's FROM. Harness pushes <registry>/step-ca:edge.
     repository: ghcr.io/zoklk/step-ca
     tag: "edge"
-    pullPolicy: Always       # :edge is a mutable tag the harness re-pushes each deploy — don't serve a stale node cache
-    # Both the main container and the merge-ca-config initContainer now use this private-GHCR image, so
-    # the pod needs the pull secret. The pod uses the `default` ServiceAccount (the subchart's
-    # serviceaccount.create: false), so it's wired here. ghcr-pull is the namespace-level Secret created
-    # by mapping-generator's per-env prep.
+    pullPolicy: Always
     imagePullSecrets:
       - ghcr-pull
   service:
-    type: ClusterIP          # the subchart's own Service is then step-ca:9000 (matches the StepClusterIssuer URL)
-    port: 9000               # device-facing exposure is a separate NodePort Service (templates/service-nodeport.yaml)
+    type: ClusterIP
+    port: 9000
     targetPort: 9000
 
-  # Config/CA-material mode: existingSecrets only (chart errors if combined with inject/bootstrap).
   inject:
     enabled: false
   bootstrap:
     enabled: false
-    configmaps: false         # suppress the empty *-config / *-certs / *-bootstrap ConfigMaps
+    configmaps: false
     secrets: false
   existingSecrets:
     enabled: true
-    ca: true                  # mounts step-ca-ca-password Secret (key: password) + adds --password-file
-    certsAsSecret: true       # mounts step-ca-certs Secret (root_ca.crt, intermediate_ca.crt)
-    configAsSecret: false     # step-ca-config is a ConfigMap (this umbrella renders it)
-    issuer: false             # no certificate-issuer (the X5C provisioners carry their roots inline in ca.json)
+    ca: true
+    certsAsSecret: true
+    configAsSecret: false
+    issuer: false
     sshHostCa: false
     sshUserCa: false
     sshTemplates: false
@@ -62,21 +34,13 @@ step-certificates:
       enabled: true
       persistent: true
       storageClass: local-storage
-      size: 1Gi               # prod overrides to 2Gi; the umbrella's pv.yaml capacity reads this value
+      size: 1Gi               # prod overrides to 2Gi
       accessModes:
         - ReadWriteOnce
     ssh:
       enabled: false
-    # ca.password is intentionally unset — existingSecrets.ca: true handles the key password (--password-file).
-    # (The knowledge-doc draft's ca.password.secretKeyRef is not a real chart value; ca.password is a plain string.)
-    # Override the chart-default container securityContext: drop the NET_BIND_SERVICE capability add
-    # (step-ca listens on :9000, not a privileged port), pin runAsUser/runAsGroup, RuntimeDefault
-    # seccomp, readOnlyRootFilesystem, allowPrivilegeEscalation: false. (Rendered verbatim onto the
-    # main container.) allowPrivilegeEscalation: false sets no_new_privs=1 on the process — which is
-    # only safe because image.repository above is the de-capped step-ca build: the upstream image's
-    # cap_net_bind_service xattr on /usr/local/bin/step-ca would otherwise make execve fail with EPERM
-    # (`exec /usr/local/bin/step-ca: operation not permitted`, exit 255). See edge/docker/step-ca/Dockerfile
-    # and kubernetes/kubernetes#111196.
+    # allowPrivilegeEscalation: false needs the de-capped image; upstream's
+    # cap_net_bind_service xattr breaks execve under no_new_privs.
     containerSecurityContext:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true
@@ -94,12 +58,9 @@ step-certificates:
     runAsUser: 1000
     runAsGroup: 1000
     runAsNonRoot: true
-    fsGroup: 1000             # badger DB PVC group
+    fsGroup: 1000
     seccompProfile:
       type: RuntimeDefault
-  # ca.containerSecurityContext: keep the chart default (readOnlyRootFilesystem: true) — step-ca writes
-  # only to the PVC (/home/step/db) and the merged-config emptyDir (/home/step/config). Flip to false
-  # only if it ever crashloops on a write to the root filesystem.
 
   resources:
     requests:
@@ -109,44 +70,31 @@ step-certificates:
       cpu: 200m
       memory: 256Mi
 
-  # ── boot-time ca.json merge (decision c) — all step-certificates 1.30.x native hooks ──
-  # The merge initContainer copies ca.json from the step-ca-config ConfigMap to an emptyDir and then,
-  # if present, applies two patches with jq:
-  #   - step-ca-whitelist ConfigMap (whitelist.json) -> options.x509.templateData.allowedCNs of the
-  #     X5C device provisioners. OSS step-ca has NO per-provisioner policy (that's a hosted Certificate
-  #     Manager feature; a `policy` block on a provisioner in ca.json is silently ignored), so the device-CN
-  #     whitelist is enforced by the X5C provisioners' leaf cert template instead (caJson.x5cLeafTemplate
-  #     below — a `{{ fail }}` guard that rejects any CN/SAN not in allowedCNs). Only the data lives here;
-  #     the guard logic (template string) is static in the ConfigMap. Empty allowedCNs == fail-closed.
-  #   - step-ca-admin-jwk Secret (encrypted-key)     -> the JWK `admin` provisioner's encryptedKey
-  # The emptyDir is then over-mounted at /home/step/config (last mount wins -> no command/args override).
-  # step-ca can't hot-reload ca.json template/provisioners; the Reloader annotation (post-render) re-rolls.
-  #
-  # Why encryptedKey comes from a Secret, not from caJson.adminJwk.encryptedKey in values: that value is
-  # the JWE of the admin private JWK, PBES2-wrapped with the provisioner password. values-prod.yaml is
-  # committed to a (public) repo, so shipping it there would let anyone GPU-brute-force the password
-  # offline -> admin-provisioner takeover. Instead the operator pre-creates Secret step-ca-admin-jwk
-  # off-band (same pattern as step-ca-certs / step-ca-secrets / step-ca-ca-password). The mount is
-  # optional: if the Secret is absent the templated caJson.adminJwk.encryptedKey is used as-is (handy
-  # for the git-ignored values-dev.yaml, where keeping it inline carries no exposure).
+  # SSA rejects two volumeMounts at /home/step/config, so the merged ca.json
+  # mounts at /home/step/config-merged and step-ca reads from there.
+  args:
+    - "--password-file"
+    - "/home/step/secrets/passwords/password"
+    - "/home/step/config-merged/ca.json"
+
+  # merge-ca-config copies step-ca-config to a writeable emptyDir and jq-patches in
+  # optional whitelist + admin JWK Secrets. The admin JWK's encryptedKey is
+  # brute-forceable from its JWE, so it lives in an off-band Secret, not committed.
   extraVolumes:
     - name: ca-merged
       emptyDir: {}
     - name: ca-whitelist
       configMap:
         name: step-ca-whitelist
-        optional: true        # whitelist may not exist yet (mapping-generator runs at sync-wave -1)
+        optional: true        # may not exist yet (mapping-generator runs at sync-wave -1)
     - name: ca-admin-jwk
       secret:
         secretName: step-ca-admin-jwk
-        optional: true        # absent -> fall back to the templated caJson.adminJwk.encryptedKey
+        optional: true        # absent: falls back to caJson.adminJwk.encryptedKey
   extraInitContainers:
     - name: merge-ca-config
-      # Same image as the main container: the de-capped step-ca build (edge/docker/step-ca/Dockerfile),
-      # which is Alpine-based and ships /bin/sh + busybox coreutils (cp, mv, test) + jq — everything
-      # this script needs. Pulled with the ghcr-pull secret wired on step-certificates.image above.
       image: ghcr.io/zoklk/step-ca:edge
-      imagePullPolicy: Always   # :edge is mutable and re-pushed each deploy — match the main container
+      imagePullPolicy: Always
       command: ["/bin/sh", "-c"]
       args:
         - |
@@ -183,7 +131,7 @@ step-certificates:
         seccompProfile:
           type: RuntimeDefault
       volumeMounts:
-        - name: config          # the subchart's `config` volume (step-ca-config ConfigMap)
+        - name: config
           mountPath: /template
           readOnly: true
         - name: ca-whitelist
@@ -196,15 +144,9 @@ step-certificates:
           mountPath: /merged
   extraVolumeMounts:
     - name: ca-merged
-      mountPath: /home/step/config   # over-mounts the chart's RO config mount -> no command/args override needed
+      mountPath: /home/step/config-merged
 
-  # nodeSelector lives in values-<env>.yaml (node_category: security).
-
-# ── ca.json content (templates/configmap-config.yaml assembles it from these values) ──
 caJson:
-  # DNS names the step-ca server cert (self-issued by the Intermediate at boot) gets as SANs.
-  # DNS-only: BearSSL on ESP8266 doesn't validate IP SANs anyway, and the device-facing trust name
-  # is a follow-up ADR. values-<env>.yaml swaps the cluster-local entry for the env's domain suffix.
   dnsNames:
     - step-ca
     - step-ca.gikview.svc.cluster.local
@@ -214,44 +156,25 @@ caJson:
     maxTLSCertDuration: "8760h"           # 365d
     defaultTLSCertDuration: "2160h"       # 90d
     disableRenewal: false
-  # Leaf cert template for the X5C device provisioners (device-bootstrap, device-renewal) — this is the
-  # static half of "decision c": OSS step-ca has no per-provisioner policy, so the device-CN whitelist is
-  # enforced here. The guard fails issuance unless the requested Subject CN and every SAN value is in
-  # .allowedCNs (= options.x509.templateData.allowedCNs, which the merge initContainer fills from the
-  # step-ca-whitelist ConfigMap at boot; empty -> fail-closed). Devices get DNS SANs only. After the guard
-  # the body mirrors step-ca's DefaultLeafTemplate (devices are EC -> just digitalSignature).
-  # The {{ }} below are step-ca template directives, NOT Helm — they sit in a values string so Helm passes
-  # them through verbatim; templates/configmap-config.yaml emits this via `| toJson` into ca.json's `template`.
+  # X5C leaf template enforces the device-CN whitelist (OSS step-ca has no
+  # per-provisioner policy). {{ }} are step-ca directives, not Helm.
   x5cLeafTemplate: |-
     {{- $wl := .allowedCNs -}}
     {{- if .Subject.CommonName }}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf "common name %q is not allowed (not in device whitelist)" .Subject.CommonName) }}{{- end }}{{- end -}}
     {{- range .SANs }}{{- if ne .Type "dns" }}{{ fail (printf "SAN type %q is not allowed (devices get DNS SANs only)" .Type) }}{{- end }}{{- if not (has .Value $wl) }}{{ fail (printf "SAN %q is not allowed (not in device whitelist)" .Value) }}{{- end }}{{- end -}}
     {"subject":{{ toJson .Subject }},"sans":{{ toJson .SANs }},"keyUsage":["digitalSignature"],"extKeyUsage":["serverAuth","clientAuth"]}
-  # base64 -w0 of the bootstrap CA cert (public). Per env -> values-<env>.yaml.
-  deviceBootstrapRoots: ""
-  # base64 -w0 of the intermediate CA cert (public). Per env -> values-<env>.yaml.
-  deviceRenewalRoots: ""
-  # admin JWK provisioner (step-issuer authenticates with this).
-  #   key:          paste the contents of admin_jwk.pub.json verbatim — the public JWK that
-  #                 `step crypto jwk create admin_jwk.pub.json admin_jwk.priv.json --password-file <pw>`
-  #                 writes: use/kty/crv/alg/kid + x,y (the EC P-256 public-key coordinates, base64url;
-  #                 RFC 7517 JWK). Don't hand-write x/y — they come straight from that file. The kid must
-  #                 match step-issuer's StepClusterIssuer provisioner.kid. Per env -> values-<env>.yaml.
-  #   encryptedKey: compact JWE of admin_jwk.priv.json (header.encrypted_key.iv.ciphertext.tag). Leave ""
-  #                 here and in values-prod.yaml — the merge initContainer injects it at boot from Secret
-  #                 step-ca-admin-jwk (key: encrypted-key), pre-created off-band (see the extraVolumes
-  #                 comment above for why). values-dev.yaml is git-ignored so it may keep it inline instead.
+  deviceBootstrapRoots: ""    # base64 -w0 of root_ca.crt, per env
+  deviceRenewalRoots: ""      # base64 -w0 of intermediate_ca.crt, per env
+  # encryptedKey loads at boot from step-ca-admin-jwk Secret; keep "" here.
   adminJwk:
     key: {}
     encryptedKey: ""
 
-# ── local PV for the badger DB (mirrors influxdb's pv.yaml); pv.yaml's capacity reads step-certificates.ca.db.size ──
 persistence:
   storageClassName: local-storage
   pvName: step-ca-pv
   hostPath: /var/lib/step-ca
   nodeHostname: ""
 
-# NodePort exposure for ESP8266 devices on the school LAN (router port-forward -> security node -> step-ca :9000).
 nodePort:
   number: 31900

@@ -48,6 +48,18 @@ SUF="sca-$$"
 CERT_NAME="smoke-stepca-cert-${SUF}"
 SECRET_NAME="smoke-stepca-tls-${SUF}"
 PF_PID=""
+ensure_pf() {
+  for _ in 1 2 3 4 5; do
+    "${CURL[@]}" --max-time 2 "${BASE_URL}/health" 2>/dev/null \
+      | grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' && return 0
+    kill "$PF_PID" 2>/dev/null || true
+    kubectl port-forward -n "$NS" "pod/$POD" "${LOCAL_PORT}:9000" >/dev/null 2>&1 &
+    PF_PID=$!
+    sleep 3
+  done
+  echo "FAIL: port-forward: /health unreachable after 5 respawn attempts (step-ca down?)"
+  exit 1
+}
 cleanup() {
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null || true
   kubectl delete certificate "$CERT_NAME" -n "$NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -211,7 +223,7 @@ if [ -n "$WL_CNS" ]; then
   MERGED=""
   CFGENV=$(kubectl exec -n "$NS" "$POD" -- sh -c 'echo "${CONFIGPATH:-}"' 2>/dev/null || echo "")
   STEPENV=$(kubectl exec -n "$NS" "$POD" -- sh -c 'echo "${STEPPATH:-}"' 2>/dev/null || echo "")
-  CANDIDATES="$CFGENV ${STEPENV:+$STEPENV/config/ca.json} /home/step/config/ca.json /tmp/ca.json /etc/step-ca/config/ca.json"
+  CANDIDATES="/home/step/config-merged/ca.json $CFGENV ${STEPENV:+$STEPENV/config/ca.json} /home/step/config/ca.json /tmp/ca.json /etc/step-ca/config/ca.json"
   for p in $CANDIDATES; do
     [ -n "$p" ] || continue
     C=$(kubectl exec -n "$NS" "$POD" -- cat "$p" 2>/dev/null || echo "")
@@ -405,6 +417,7 @@ else
 fi
 
 # ── 8. (네거티브) POST /1.0/sign 무인증 → 2xx 아님 ──────────────────────────
+ensure_pf
 SIGN_CODE=$("${CURL[@]}" -o /dev/null -w "%{http_code}" -X POST "${BASE_URL}/1.0/sign" \
   -H "Content-Type: application/json" -d '{}' 2>/dev/null) || true   # 연결 실패 시 curl -w 가 이미 "000" 출력 → echo "000" 이면 "000\n000"
 [ -n "$SIGN_CODE" ] || SIGN_CODE="000"
@@ -427,6 +440,7 @@ esac
 # 인증서로 제시해 /1.0/renew → 새 leaf 를 받아 (a) 같은 CN (b) Root CA 로 체인
 # (c) notAfter 가 원본보다 뒤인지 단정. CRT_READY 였던 경우만 실행 (#7 가 policy 로
 # note 강등됐으면 발급 leaf 자체가 없으니 skip).
+ensure_pf
 if [ -n "${CRT_READY:-}" ]; then
   RNW_CRT=/tmp/sca_rnw_in.crt; RNW_KEY=/tmp/sca_rnw_in.key
   kubectl get secret "$SECRET_NAME" -n "$NS" -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > "$RNW_CRT" 2>/dev/null || true
@@ -509,6 +523,7 @@ fi
 # 입력: Secret 'step-ca-smoke-bootstrap' (kubernetes.io/tls; tls.crt = bootstrap_ca.crt 서명 leaf,
 #       tls.key = 그 키). 디바이스가 펌웨어에 굽는 bootstrap.crt/bootstrap.key 와 동일 역할의
 #       smoke 전용 장수명 신원 — dev 에만 존재. Secret 또는 'step' CLI 없으면 #10 전체 note-skip.
+ensure_pf
 if   ! command -v step >/dev/null 2>&1;                            then echo "note: #10 (X5C bootstrap e2e) skipped — 'step' CLI not on runner PATH"
 elif ! kubectl get secret step-ca-smoke-bootstrap -n "$NS" >/dev/null 2>&1; then echo "note: #10 (X5C bootstrap e2e) skipped — Secret 'step-ca-smoke-bootstrap' not in $NS"
 else

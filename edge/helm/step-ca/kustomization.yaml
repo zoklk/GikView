@@ -1,8 +1,3 @@
-# Used by post-render.sh. Adds the Reloader annotation to the step-ca StatefulSet's metadata
-# (Reloader reads it from the workload object, not the pod template), and disables SA-token
-# auto-mount (step-ca needs no Kubernetes API access at runtime in existingSecrets mode).
-# StatefulSet name is "step-ca" (step-certificates subchart with nameOverride: step-ca).
-# Strategic-merge patch (not JSON-patch) so it creates metadata.annotations if absent.
 resources:
   - all.yaml
 patches:

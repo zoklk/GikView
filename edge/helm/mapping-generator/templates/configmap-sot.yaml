@@ -1,9 +1,4 @@
-{{- /*
-Single source of truth, rendered from .Values.deviceRoomMapping (git-managed).
-mapping-generator only READS this — the three derived ConfigMaps (emqx-acl,
-step-ca-whitelist, telegraf-lookup) are written by the Job/CronJob, not here.
-Helm iterates map keys in sorted order, so the rendered csv is deterministic.
-*/}}
+{{- /* SoT for device->room. Derived ConfigMaps are written by the Job/CronJob, not here. */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

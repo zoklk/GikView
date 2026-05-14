@@ -1,18 +1,11 @@
-# Umbrella chart values. The "cert-manager:" block is passed to the upstream
-# jetstack/cert-manager subchart; env-specific overrides (nodeSelector) live in
-# values-<env>.yaml.
 cert-manager:
-  # Install CRDs with the release; keep them on uninstall so Certificate
-  # resources are not garbage-collected (knowledge: cert-manager.md).
+  # Keep CRDs on uninstall so Certificates aren't garbage-collected.
   crds:
     enabled: true
     keep: true
-  # cert-manager runs in the gikview namespace; keep the leader-election lease
-  # there too rather than the default kube-system.
   global:
     leaderElection:
       namespace: gikview
-  # Single replica everywhere — 9-node non-HA policy; Argo CD self-heals.
   replicaCount: 1
   resources:
     requests:
@@ -21,7 +14,6 @@ cert-manager:
     limits:
       cpu: 100m
       memory: 128Mi
-  # No ACME/Vault solver, no scrape target yet (flip in the visibility phase).
   prometheus:
     enabled: false
   webhook:

@@ -6,8 +6,6 @@ metadata:
   labels:
     {{- include "mapping-generator.labels" . | nindent 4 }}
 rules:
-  # Reads device-room-mapping; creates/updates emqx-acl, step-ca-whitelist,
-  # telegraf-lookup. Shared by the init Job and the CronJob.
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]

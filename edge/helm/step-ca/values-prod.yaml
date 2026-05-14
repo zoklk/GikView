@@ -1,20 +1,8 @@
-# prod (edge cluster).
-# nodeSelector: environments.prod.node_selectors.security = e-s1.
-#
-# caJson.* below are PLACEHOLDERS — the prod step-ca has its own offline-generated CA + admin JWK
-# (same pattern as edge/helm/step-issuer/values-prod.yaml). Fill the PUBLIC bits when prod step-ca is
-# provisioned:
-#   deviceBootstrapRoots:   $(base64 -w0 prod_bootstrap_ca.crt)
-#   deviceRenewalRoots:     $(base64 -w0 prod_intermediate_ca.crt)
-#   adminJwk.key:           contents of prod_admin_jwk.pub.json verbatim (public JWK from `step crypto
-#                           jwk create` — use/kty/crv/alg/kid + x,y = EC P-256 public-key coords, base64url;
-#                           don't hand-write x/y. kid must match step-issuer's StepClusterIssuer provisioner.kid)
-# adminJwk.encryptedKey stays "" — this file is committed to a public repo, so the PBES2-wrapped admin
-# private JWK must NOT live here (offline GPU brute-force of the provisioner password = admin takeover).
-# Instead pre-create it off-band as a Secret (the merge initContainer injects it into ca.json at boot):
-#   kubectl create secret generic step-ca-admin-jwk -n gikview --from-file=encrypted-key=prod_admin_jwk.priv.json
-# Also pre-create step-ca-certs / step-ca-secrets / step-ca-ca-password / step-issuer-provisioner-password
-# and chown the host dir 1000:1000 (context/knowledge/step-ca.md).
+# Operator pre-creates these Secrets off-band (see context/knowledge/step-ca.md):
+#   step-ca-certs, step-ca-secrets, step-ca-ca-password, step-ca-admin-jwk,
+#   step-issuer-provisioner-password
+# And chowns the host PV dir 1000:1000.
+
 step-certificates:
   nodeSelector:
     kubernetes.io/hostname: e-s1
@@ -32,17 +20,17 @@ persistence:
   nodeHostname: e-s1
 
 caJson:
-  # dnsNames inherits the cluster.local default from values.yaml (DNS-only; node IP not added —
-  # BearSSL doesn't validate IP SANs; the device-facing trust name is a follow-up ADR).
-  deviceBootstrapRoots: "REPLACE_WITH_PROD_BOOTSTRAP_CA_BASE64"
-  deviceRenewalRoots: "REPLACE_WITH_PROD_INTERMEDIATE_CA_BASE64"
+  # yamllint disable-line rule:line-length
+  deviceBootstrapRoots: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJuakNDQVVPZ0F3SUJBZ0lRZHhpaVdRamxsYVpib3g4aGk2MTdlekFLQmdncWhrak9QUVFEQWpBYU1SZ3cKRmdZRFZRUURFdzlIYVd0V2FXVjNJRkp2YjNRZ1EwRXdIaGNOTWpZd05URTBNVFl5TURRNFdoY05NekV3TlRFegpNVFl5TURRMVdqQWZNUjB3R3dZRFZRUURFeFJIYVd0V2FXVjNJRUp2YjNSemRISmhjQ0JEUVRCWk1CTUdCeXFHClNNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJJTFJ1QjlqZnZXZDNnWW9XUXRFT1Z3OXlYU2RSQ2k0YzZObklnaEMKWFdjRCtXTXBUSUR4UXJpTityc01yZng1RCt1czdYR2ZWN25JTHp4ZHpvZUlLb3FqWmpCa01BNEdBMVVkRHdFQgovd1FFQXdJQkJqQVNCZ05WSFJNQkFmOEVDREFHQVFIL0FnRUFNQjBHQTFVZERnUVdCQlNTYjEyUUlVWnZBWnNQCnU2SGg2NlBCTDR5ci96QWZCZ05WSFNNRUdEQVdnQlRHT0JQWllzSE1Uc2xGK3NUbTJkLzU1NkJOWURBS0JnZ3EKaGtqT1BRUURBZ05KQURCR0FpRUEwQ1RXUG41ZmFHT1dUbzU3Nmx6bFlRLzd3OGxBcm5nNXd5RDFzQkg2aE1zQwpJUURpV3h3RXB4TFk2MU5BK1pVd0J5b0MxSTh6QU5QYmVUUndUKytVNFVvdjJ3PT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="
+  # yamllint disable-line rule:line-length
+  deviceRenewalRoots: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJuekNDQVVhZ0F3SUJBZ0lRWHpTL3N4dTE2d1U4SDdKdmxmL3gyekFLQmdncWhrak9QUVFEQWpBYU1SZ3cKRmdZRFZRUURFdzlIYVd0V2FXVjNJRkp2YjNRZ1EwRXdIaGNOTWpZd05URTBNVFl4TmpBeFdoY05NekV3TlRFegpNVFl4TlRVeldqQWlNU0F3SGdZRFZRUURFeGRIYVd0V2FXVjNJRWx1ZEdWeWJXVmthV0YwWlNCRFFUQlpNQk1HCkJ5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSnBwaVlwRXdEdWZ4WUorendRTmdHalk1MHplc0s2UDFuYVMKRFZ5SVRZZjdRSkc3S2huNEE3TjR1cWZyOThzUytjQk4wZndnS3FpNEhuZUYzVW1KSC9lalpqQmtNQTRHQTFVZApEd0VCL3dRRUF3SUJCakFTQmdOVkhSTUJBZjhFQ0RBR0FRSC9BZ0VBTUIwR0ExVWREZ1FXQkJUdGkrS05EM2JjCmwyZlBYdDhMWERKZ2Y4Z2RUREFmQmdOVkhTTUVHREFXZ0JUR09CUFpZc0hNVHNsRitzVG0yZC81NTZCTllEQUsKQmdncWhrak9QUVFEQWdOSEFEQkVBaUF4T0JLV3JpZ2dkbUs3YlBrT1hEN0VSbTJPci9wZ2Z5VkltTCt0U3ZaSAp3d0lnWERNTEFHaytJNzVyYTBBcEJ3WUkydWlQTVo1djRydUo2YUJtMHRTYUhqRT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="
   adminJwk:
     key:
       use: sig
       kty: EC
       crv: P-256
       alg: ES256
-      kid: "REPLACE_WITH_PROD_ADMIN_JWK_KID"   # must match step-issuer's StepClusterIssuer provisioner.kid
-      x: "REPLACE_WITH_PROD_ADMIN_JWK_X"
-      "y": "REPLACE_WITH_PROD_ADMIN_JWK_Y"   # "y" MUST stay quoted — go-yaml (YAML 1.1) parses a bare y/n key as a boolean
-    encryptedKey: ""   # injected at boot from Secret step-ca-admin-jwk (key: encrypted-key) — see header
+      kid: "KfRD3GwGt3pwdN0DyZI2q-JWt5i_IpgDOnt-D0-lLIE"
+      x: "VAueV_FMjCL6Ngxgh61KF9p9at6CGuO5NONSe5EqG80"
+      "y": "91LcrOGCovukkuSTbSsQ9Q8E5vGJCHdv0jUw6IKD868"   # quoted: go-yaml parses bare y as bool
+    encryptedKey: ""   # loaded from step-ca-admin-jwk Secret at boot

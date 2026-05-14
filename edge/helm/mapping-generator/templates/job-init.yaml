@@ -1,10 +1,4 @@
-{{- /*
-One-shot bootstrap: runs once on install/upgrade so emqx-acl,
-step-ca-whitelist and telegraf-lookup exist before step-ca (sync-wave 0) and
-emqx (sync-wave 1) come up. Same image/command as the CronJob. Argo CD treats
-the helm post-install hook as a PostSync resource, so the next sync-wave waits
-for it to complete.
-*/}}
+{{- /* Bootstrap run on install/upgrade so derived ConfigMaps exist before step-ca/emqx. */ -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -38,9 +32,7 @@ spec:
         - name: mapping-generator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # On BackoffLimitExceeded the Job controller deletes failed pods and
-          # their logs vanish; this copies the last lines of stdout into pod
-          # status so the failure stays debuggable.
+          # Preserve logs in pod status after BackoffLimitExceeded pod cleanup.
           terminationMessagePolicy: FallbackToLogsOnError
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

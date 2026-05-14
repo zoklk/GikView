@@ -1,9 +1,4 @@
-{{- /*
-NodePort exposure for ESP8266 devices on the school LAN: <router>:<extPort> -> <security node>:<nodePort>
--> step-ca :9000. externalTrafficPolicy: Local so step-ca sees each device's real source IP in logs/policy.
-Mirrors edge/helm/emqx/templates/service-nodeport.yaml. The in-cluster ClusterIP Service (step-ca:9000,
-from the subchart) is what step-issuer/cert-manager use; this one is device-facing only.
-*/}}
+{{- /* Device-facing NodePort. Local externalTrafficPolicy preserves device source IP. */ -}}
 apiVersion: v1
 kind: Service
 metadata:

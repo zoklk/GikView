@@ -46,12 +46,8 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          # InfluxDB 3 Core 3.9.x requires a bearer token on every HTTP
-          # endpoint once an admin token is provisioned, including /ping
-          # and /health (influxdata/influxdb#26662). kubelet httpGet probes
-          # can't attach an Authorization header, so we use a TCP probe —
-          # it confirms the listener is bound on the http port, which is
-          # the readiness signal we need.
+          # TCP probes only: 3.9.x requires bearer auth on /ping and /health
+          # (influxdata/influxdb#26662), which kubelet can't attach.
           startupProbe:
             tcpSocket:
               port: http
@@ -70,10 +66,8 @@ spec:
               mountPath: /var/lib/influxdb3/data
             - name: tmp
               mountPath: /tmp
-            # influxdb:3-core image bakes ENV INFLUXDB3_PLUGIN_DIR=/plugins; Processing
-            # Engine boots unconditionally and writes /plugins/.venv, which fails under
-            # readOnlyRootFilesystem=true. Provide a writable emptyDir until upstream
-            # ships a flag to disable the engine (influxdata/influxdb#26345).
+            # Processing Engine writes /plugins/.venv unconditionally and trips
+            # readOnlyRootFilesystem (influxdata/influxdb#26345).
             - name: plugins
               mountPath: /plugins
       volumes:
