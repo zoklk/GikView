@@ -39,6 +39,6 @@ iptables: Bad rule (does a matching rule exist in that chain?)
 
 ## 해결
 
-iptables 기반 masquerade 경로 자체를 우회. Cilium Helm values의 `bpf.masquerade=true`로 전환하여 SNAT를 eBPF datapath에서 처리. 이 경로에서는 `OLD_CILIUM_POST_nat` 체인이 사용되지 않아 손상된 룰이 outbound 트래픽에 영향을 주지 않음. 동시에 cilium issue #33465에 재현 결과를 보고하고, cilium-agent의 `removeCiliumRules`가 `iptables -S` 출력 본문을 byte-exact replay 하지 않도록 정리 경로를 line number + target prefix 기반으로 재작성하는 PR을 제출.
+iptables 기반 masquerade 경로 자체를 우회. Cilium Helm values의 `bpf.masquerade=true`로 전환하여 SNAT를 eBPF datapath에서 처리.
 
 상세 수치: [result.md](result.md)

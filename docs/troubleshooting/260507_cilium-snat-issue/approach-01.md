@@ -48,4 +48,3 @@ cilium-agent 로그에서 약 10초 주기로 반복되는 reconciliation 에러
 
 **다음 행동**
 - iptables masquerade 경로 우회: `bpf.masquerade=true`로 전환하여 SNAT를 eBPF datapath에서 처리 (현장 즉시 조치)
-- cilium-agent의 `removeCiliumRules`를 `iptables -S` 본문 의존에서 line number + target prefix 기반으로 재작성하는 PR 제출 (root cause fix). 기존 검증 가드 PR(cilium/cilium#45866)은 손상 CIDR이 syntactically valid해 가드로 못 잡으므로 close
