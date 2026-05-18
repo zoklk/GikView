@@ -1,0 +1,48 @@
+{{- /*
+ca.json static config. Name matches the subchart's `config` volume ({fullname}-config).
+In existingSecrets mode the subchart skips rendering it, so the umbrella does.
+allowedCNs starts empty; the merge initContainer fills it from step-ca-whitelist at boot.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: step-ca-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "step-ca.labels" . | nindent 4 }}
+data:
+  ca.json: |
+    {
+      "root": "/home/step/certs/root_ca.crt",
+      "crt": "/home/step/certs/intermediate_ca.crt",
+      "key": "/home/step/secrets/intermediate_ca_key",
+      "address": ":9000",
+      "dnsNames": {{ toJson .Values.caJson.dnsNames }},
+      "logger": { "format": "json" },
+      "db": { "type": "badgerv2", "dataSource": "/home/step/db" },
+      "authority": {
+        "claims": {{ toJson .Values.caJson.claims }},
+        "provisioners": [
+          {
+            "type": "X5C",
+            "name": "device-bootstrap",
+            "roots": {{ .Values.caJson.deviceBootstrapRoots | quote }},
+            "claims": { "defaultTLSCertDuration": "2160h", "disableRenewal": true },
+            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cLeafTemplate | toJson }} } }
+          },
+          {
+            "type": "X5C",
+            "name": "device-renewal",
+            "roots": {{ .Values.caJson.deviceRenewalRoots | quote }},
+            "claims": { "defaultTLSCertDuration": "2160h", "allowRenewalAfterExpiry": false },
+            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cLeafTemplate | toJson }} } }
+          },
+          {
+            "type": "JWK",
+            "name": "admin",
+            "key": {{ toJson .Values.caJson.adminJwk.key }},
+            "encryptedKey": {{ .Values.caJson.adminJwk.encryptedKey | quote }}
+          }
+        ]
+      }
+    }

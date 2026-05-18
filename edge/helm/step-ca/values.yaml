@@ -1,0 +1,180 @@
+step-certificates:
+  nameOverride: step-ca
+  kind: StatefulSet
+  replicaCount: 1
+  image:
+    repository: ghcr.io/zoklk/step-ca
+    tag: "edge"
+    pullPolicy: Always
+    imagePullSecrets:
+      - ghcr-pull
+  service:
+    type: ClusterIP
+    port: 9000
+    targetPort: 9000
+
+  inject:
+    enabled: false
+  bootstrap:
+    enabled: false
+    configmaps: false
+    secrets: false
+  existingSecrets:
+    enabled: true
+    ca: true
+    certsAsSecret: true
+    configAsSecret: false
+    issuer: false
+    sshHostCa: false
+    sshUserCa: false
+    sshTemplates: false
+
+  ca:
+    db:
+      enabled: true
+      persistent: true
+      storageClass: local-storage
+      size: 1Gi               # prod overrides to 2Gi
+      accessModes:
+        - ReadWriteOnce
+    ssh:
+      enabled: false
+    # allowPrivilegeEscalation: false needs the de-capped image; upstream's
+    # cap_net_bind_service xattr breaks execve under no_new_privs.
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+      capabilities:
+        drop:
+          - ALL
+        add: []
+      seccompProfile:
+        type: RuntimeDefault
+
+  podSecurityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # SSA rejects two volumeMounts at /home/step/config, so the merged ca.json
+  # mounts at /home/step/config-merged and step-ca reads from there.
+  args:
+    - "--password-file"
+    - "/home/step/secrets/passwords/password"
+    - "/home/step/config-merged/ca.json"
+
+  # merge-ca-config copies step-ca-config to a writeable emptyDir and jq-patches in
+  # optional whitelist + admin JWK Secrets. The admin JWK's encryptedKey is
+  # brute-forceable from its JWE, so it lives in an off-band Secret, not committed.
+  extraVolumes:
+    - name: ca-merged
+      emptyDir: {}
+    - name: ca-whitelist
+      configMap:
+        name: step-ca-whitelist
+        optional: true        # may not exist yet (mapping-generator runs at sync-wave -1)
+    - name: ca-admin-jwk
+      secret:
+        secretName: step-ca-admin-jwk
+        optional: true        # absent: falls back to caJson.adminJwk.encryptedKey
+  extraInitContainers:
+    - name: merge-ca-config
+      image: ghcr.io/zoklk/step-ca:edge
+      imagePullPolicy: Always
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          cp /template/ca.json /merged/ca.json
+          if [ -s /whitelist/whitelist.json ]; then
+            jq --slurpfile wl /whitelist/whitelist.json \
+              '(.authority.provisioners[] | select(.type == "X5C") | .options.x509.templateData.allowedCNs) = ($wl[0] // [])' \
+              /merged/ca.json > /merged/ca.json.new
+            mv /merged/ca.json.new /merged/ca.json
+          fi
+          if [ -s /admin-jwk/encrypted-key ]; then
+            jq --arg ek "$(cat /admin-jwk/encrypted-key)" \
+              '(.authority.provisioners[] | select(.name == "admin") | .encryptedKey) = $ek' \
+              /merged/ca.json > /merged/ca.json.new
+            mv /merged/ca.json.new /merged/ca.json
+          fi
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: config
+          mountPath: /template
+          readOnly: true
+        - name: ca-whitelist
+          mountPath: /whitelist
+          readOnly: true
+        - name: ca-admin-jwk
+          mountPath: /admin-jwk
+          readOnly: true
+        - name: ca-merged
+          mountPath: /merged
+  extraVolumeMounts:
+    - name: ca-merged
+      mountPath: /home/step/config-merged
+
+caJson:
+  dnsNames:
+    - step-ca
+    - step-ca.gikview.svc.cluster.local
+    - "127.0.0.1"
+  claims:
+    minTLSCertDuration: "5m"
+    maxTLSCertDuration: "8760h"           # 365d
+    defaultTLSCertDuration: "2160h"       # 90d
+    disableRenewal: false
+  # X5C leaf template enforces the device-CN whitelist (OSS step-ca has no
+  # per-provisioner policy). {{ }} are step-ca directives, not Helm.
+  x5cLeafTemplate: |-
+    {{- $wl := .allowedCNs -}}
+    {{- if .Subject.CommonName }}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf "common name %q is not allowed (not in device whitelist)" .Subject.CommonName) }}{{- end }}{{- end -}}
+    {{- range .SANs }}{{- if ne .Type "dns" }}{{ fail (printf "SAN type %q is not allowed (devices get DNS SANs only)" .Type) }}{{- end }}{{- if not (has .Value $wl) }}{{ fail (printf "SAN %q is not allowed (not in device whitelist)" .Value) }}{{- end }}{{- end -}}
+    {"subject":{{ toJson .Subject }},"sans":{{ toJson .SANs }},"keyUsage":["digitalSignature"],"extKeyUsage":["serverAuth","clientAuth"]}
+  deviceBootstrapRoots: ""    # base64 -w0 of root_ca.crt, per env
+  deviceRenewalRoots: ""      # base64 -w0 of intermediate_ca.crt, per env
+  # encryptedKey loads at boot from step-ca-admin-jwk Secret; keep "" here.
+  adminJwk:
+    key: {}
+    encryptedKey: ""
+
+persistence:
+  storageClassName: local-storage
+  pvName: step-ca-pv
+  hostPath: /var/lib/step-ca
+  nodeHostname: ""
+
+nodePort:
+  number: 31900

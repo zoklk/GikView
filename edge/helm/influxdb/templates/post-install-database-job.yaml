@@ -1,0 +1,94 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Chart.Name }}-create-database
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "influxdb.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "influxdb.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      # Pinned to the StatefulSet's node so the InfluxDB image is already cached.
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: create-database
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Preserve logs in pod status after BackoffLimitExceeded pod cleanup.
+          terminationMessagePolicy: FallbackToLogsOnError
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: INFLUX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminTokenSecret.name }}
+                  key: {{ .Values.adminTokenSecret.tokenKey }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              HOST="http://{{ .Chart.Name }}:{{ .Values.service.ports.http }}"
+              DB="{{ .Values.database.name }}"
+              RETENTION="{{ .Values.database.retention }}"
+
+              # tcpSocket Ready fires before catalog load finishes; poll the CLI instead.
+              echo "Waiting for InfluxDB API at $HOST ..."
+              for i in $(seq 1 120); do
+                if influxdb3 show databases --host "$HOST" --token "$INFLUX_TOKEN" >/dev/null 2>&1; then
+                  echo "InfluxDB API reachable after ${i} attempt(s)."
+                  break
+                fi
+                if [ "$i" = "120" ]; then
+                  echo "FAIL: InfluxDB API at $HOST did not become reachable within 120s" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+
+              # CLI rejects "--retention-period none"; omit the flag for unlimited.
+              echo "Creating database '$DB' (retention=$RETENTION) ..."
+              if [ "$RETENTION" = "none" ] || [ -z "$RETENTION" ]; then
+                OUT=$(influxdb3 create database "$DB" \
+                  --host "$HOST" \
+                  --token "$INFLUX_TOKEN" 2>&1) && RC=0 || RC=$?
+              else
+                OUT=$(influxdb3 create database "$DB" \
+                  --host "$HOST" \
+                  --token "$INFLUX_TOKEN" \
+                  --retention-period "$RETENTION" 2>&1) && RC=0 || RC=$?
+              fi
+              echo "$OUT"
+
+              if [ "$RC" = "0" ]; then
+                echo "Database '$DB' created."
+                exit 0
+              fi
+
+              # Idempotent: "already exists" counts as success.
+              if echo "$OUT" | grep -qiE 'already exists|409'; then
+                echo "Database '$DB' already exists, treating as success."
+                exit 0
+              fi
+
+              echo "FAIL: create database returned exit $RC" >&2
+              exit "$RC"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,9 @@
+cert-manager:
+  nodeSelector:
+    kubernetes.io/hostname: e-s1
+  webhook:
+    nodeSelector:
+      kubernetes.io/hostname: e-s1
+  cainjector:
+    nodeSelector:
+      kubernetes.io/hostname: e-s1

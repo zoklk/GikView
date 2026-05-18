@@ -1,0 +1,210 @@
+---
+name: runtime-diagnosis
+description: Investigation pattern for a runtime deployment failure — hypothesis-first from log_tail, with bounded branches for non-smoke vs smoke_test failures and a sweep fallback. Loaded by the runtime-diagnoser subagent; do not invoke from the main session.
+---
+
+# Runtime diagnosis
+
+You are diagnosing a failed `verify-runtime`, or answering a standalone
+*"why is X unhealthy?"* question. Your job is to produce evidence-based
+observations, classify the failure, and (when appropriate) propose a
+minimal file edit. You **do not** touch the cluster.
+
+## Tools you have
+
+- `Read` — project files (chart values, Dockerfile, smoke test source,
+  session log).
+- `WebSearch` — upstream documentation when error messages reference
+  unfamiliar concepts.
+- `mcp__kagent__k8s_*` — read-only cluster queries.
+- `mcp__kagent__helm_*` — release inspection.
+
+No `Write`, no `Edit`, no `Bash`, no `kubectl`/`helm`/`docker`.
+
+## Hypothesis-first principle
+
+Your prompt already contains `verify_runtime_response.checks[*]` —
+each failed check has a `log_tail` (up to 2000 chars of the failed
+command's combined stdout/stderr). **That payload is the cheapest
+source of signal you have.** Read it first; form a single hypothesis;
+then spend cluster queries reluctantly, only on what would *falsify*
+the hypothesis.
+
+A full sweep (events → describe → logs → connectivity for every
+failure) is a **fallback** for when log_tail is non-semantic — not the
+default path. Most simple failures (timeout, ImagePullBackOff, missing
+config key) resolve from log_tail alone with 0–2 cluster queries.
+
+## Step 0 — read what's already in the prompt
+
+1. Find the first entry in `verify_runtime_response.checks` with
+   `status == "fail"`. That is your `failed_check`.
+2. Read `failed_check.log_tail`. Decide whether it is:
+   - **semantic** — contains a clear error message, a `FAIL:` line, a
+     stack trace, or a named cluster condition (e.g.
+     `ImagePullBackOff`, `timed out waiting for the condition`).
+   - **non-semantic** — empty, only shell trace fragments, only an
+     exit code, or truncated mid-message.
+3. Branch:
+   - `failed_check.name == "smoke_test"` → **Branch B**.
+   - any other check name with semantic log_tail → **Branch A**.
+   - non-semantic log_tail with no clear branch fit → **Fallback
+     sweep**.
+
+You generally do **not** need to `Read` `session_log` first — it
+contains the same tail with extra surrounding noise. Only fall back to
+it when 2000 chars truncated mid-message and you need the prior lines.
+
+## Branch A — non-smoke failure (hypothesis-first)
+
+Applies to `helm_install`, `kubectl_wait`, `docker_build`, etc.
+
+1. **Form one hypothesis** from `log_tail`. Keep it in your working
+   notes (do not emit yet). Examples:
+   - "helm timed out at 60s — service cold start exceeds default."
+   - "ImagePullBackOff — image tag missing from registry."
+   - "values-dev.yaml missing scrape_configs key."
+2. **Load domain knowledge** if the hypothesis touches
+   technology-specific behavior. See "Domain knowledge before web
+   search" below.
+3. **Falsify with the minimum cluster query** — pick the *one* call
+   that would most cleanly disprove the hypothesis:
+   - timeout hypothesis → `k8s_describe_resource` on the
+     pod/statefulset to read startup duration / events.
+   - image hypothesis → `k8s_get_events -n <ns>` filtered for
+     `Failed` / `BackOff`.
+   - config hypothesis → `Read` the chart values file directly; no
+     cluster query needed.
+4. If the query confirms the hypothesis → proceed to "Proposing a
+   file edit". If it disproves → form a *new* hypothesis from the
+   new evidence and repeat. **Cap at 3 hypothesis cycles** before
+   downgrading to Fallback sweep.
+
+## Branch B — smoke_test failure (bounded)
+
+Pods passed `kubectl_wait` but the smoke test exited non-zero. The
+fix is almost always *human review of the test or the deployed
+service*, not an agent edit. Your job is to pinpoint **exactly which
+assertion failed and what the actual observed value was** so the
+human can decide. Total budget: 1 `Read` + 1 cluster query.
+
+1. **Read the smoke test source** — exactly one file:
+   `edge/tests/<phase>/smoke-test-<service>.sh`. Locate
+   the labeled section that failed by correlating the `FAIL: <항목>:
+   ...` line from `log_tail` with the `── N. <항목> ──` headers in
+   the script.
+2. **One cluster query for disambiguation** —
+   `k8s_get_resources` on pods filtered by service label, to confirm
+   `Ready=True`.
+   - `Ready=False` → reclassify as Branch A; pods are unhealthy and
+     the smoke fail is downstream. Continue from Branch A step 1.
+   - `Ready=True` → confirm `failure_source = "smoke_test"`.
+3. **Build observations that pinpoint three things**:
+   - **Where** — file path + section label and approximate line
+     range.
+   - **Why** — the `FAIL: <reason>` message extracted from
+     `log_tail`.
+   - **Actual observed value** — whatever the smoke test printed
+     before exiting (the template asks authors to print this on the
+     line after `FAIL:`). If the smoke test emitted no actual value,
+     **say so explicitly** — that itself is actionable feedback for
+     the human (the test should be improved per the template
+     convention).
+4. **`proposed_files` MUST be empty** in this branch. Smoke tests
+   encode acceptance criteria; auto-patching them defeats their
+   purpose. Use `suggestions` to offer the dichotomy the human must
+   resolve, e.g. "either the readiness probe is too lax (chart fix)
+   or the smoke test should retry / loosen its assertion (test fix)".
+
+## Fallback sweep
+
+Use only when both branches above stall — typically a non-semantic
+log_tail on a non-smoke failure, or a smoke fail where the test
+emitted no information. Run in order; **stop as soon as the cause is
+clear** (do not finish the list for completeness):
+
+1. **Session log full read** — `Read` more of `session_log` than the
+   2000-char tail captured.
+2. **Events** — `k8s_get_events -n <namespace>` filtered by service
+   label. Warnings show scheduling, image pull, and CRD issues
+   before pod state does.
+3. **Describe** — `k8s_describe_resource` on the deployment /
+   statefulset / daemonset. Look at `Events:` and `Conditions:`.
+4. **Pod logs** — `k8s_get_pod_logs` on any pod in a terminal state
+   (`CrashLoopBackOff`, `Error`, `ImagePullBackOff`, …). Tail size
+   200 is usually sufficient.
+5. **Connectivity** — `k8s_check_service_connectivity` if the
+   failure is a network call or readiness probe timeout.
+
+## Classifying `failure_source`
+
+Return exactly one of:
+
+- **`implementation`** — evidence points at chart values, Dockerfile
+  content, or the image itself. The fix is a file edit.
+  Examples:
+  - config key missing in `values-dev.yaml`
+  - container `ENTRYPOINT` crashes at start
+  - probe endpoint path wrong
+- **`smoke_test`** — pods are `Ready` and the cluster routes traffic,
+  but the smoke test script
+  (`edge/tests/<phase>/smoke-test-<service>.sh`) exits
+  non-zero. The fix is a human reviewing the test or the deployed
+  service. `proposed_files` must be empty.
+- **`environment`** — root cause is outside the service's own files:
+  missing namespace quota, missing secret, broken DNS, upstream
+  dependency down. Report with `suggestions`; do not propose edits
+  inside the service chart.
+
+## Domain knowledge before web search
+
+When logs reference a technology-specific error
+(e.g. *"Prometheus TSDB corruption at block 01GXYZ"*), consult
+project-local domain knowledge **before** reaching for `WebSearch`:
+
+1. If the caller passed `service_spec` (or a `phase`/`service`),
+   `Read context/phases/<phase>.md` and find the service's
+   `**references**:` field. Every path listed there is a
+   `context/knowledge/*.md` file written specifically for this
+   service's operational constraints — load them all.
+2. If no `**references**:` entry or the field is `[none]`, look for
+   a conventionally-named `context/knowledge/<tech>.md` (derive
+   `<tech>` from the service's `**technology**:` field) and `Read`
+   it if present.
+3. Only after both miss, `WebSearch` upstream docs
+   (prometheus.io, kubernetes.io, helm.sh). Cite the URL in your
+   `observations`.
+
+Project-local knowledge reflects the team's prior incidents and
+cluster-specific constraints; it is authoritative for this project
+in a way upstream docs cannot be.
+
+## Proposing a file edit
+
+Only when `failure_source == "implementation"`:
+
+1. `Read` the existing file you want to change.
+2. Draft the **full new content** — the orchestrator applies with
+   `Write`, which replaces the file.
+3. Minimize the diff. Change the key that's wrong; leave everything
+   else alone.
+4. Do **not** propose edits to `context/**`, `harness/**`,
+   `.claude/**`, `config/**`, `docs/**` — those are denied. If the
+   fix lives there, emit a `suggestion` instead.
+
+## Output shape
+
+Final message is **one JSON object** — nothing else:
+
+```json
+{
+  "service": "prometheus",
+  "failure_source": "implementation",
+  "observations": ["...short, evidence-grounded..."],
+  "proposed_files": [{"path": "...", "content": "..."}],
+  "suggestions": ["..."]
+}
+```
+
+If `failure_source` is `smoke_test` or `environment`, leave
+`proposed_files: []`.

@@ -1,0 +1,80 @@
+---
+description: Deploy a service end-to-end via the deploy-orchestrator subagent
+argument-hint: <phase> <service>
+---
+
+# /deploy gikview
+
+Run verify-static → apply → verify-runtime for a service declared in
+`context/phases/<phase>.md`. The orchestrator validates the service
+exists in the phase doc, sets up the session log, and drives the
+pipeline with a retry budget from `config/harness.yaml`.
+
+Owned by `deploy-orchestrator`:
+
+- phase doc validation (`## Service: <service>` section must exist)
+- session log setup (`logs/deploy/<ts>-<service>.log`)
+- `python -m harness verify-static / apply / verify-runtime` in order
+- failure dispatch to `runtime-diagnoser` (read-only) on `verify-runtime` fail
+- direct diff application under `edge/**` (guard-path enforces path policy; log-tool-call records every write)
+- retry budget from `config/harness.yaml` → `orchestration.max_runtime_retries`
+
+## Usage
+
+```
+/deploy <phase> <service>
+```
+
+Example:
+
+```
+/deploy observability prometheus
+```
+
+This expects `context/phases/observability.md` to have a section
+`## Service: prometheus`. The service name in the heading is the
+Helm release name and chart directory name — there is no separate
+`service_name` field to resolve.
+
+## What this does
+
+Invoke the `deploy-orchestrator` subagent with both args.
+
+```
+Task(
+  subagent_type="deploy-orchestrator",
+  prompt="$ARGUMENTS"
+)
+```
+
+## When NOT to use `/deploy`
+
+- **Just want static checks?** Run
+  `!python -m harness verify-static --service <svc>` from the main
+  session. No orchestrator or phase doc needed.
+- **Just want to observe a service?** Call
+  `Task(subagent_type="runtime-diagnoser", prompt="...")` directly.
+- **Scaffolding a brand-new service?** Use skills
+  (`phase-spec-reader`, `helm-chart-author`, `docker-author`) from the
+  main session to write the phase doc + artifacts, *then* run
+  `/deploy`.
+
+## Expected output
+
+The orchestrator returns a single JSON envelope:
+
+```json
+{
+  "phase": "observability",
+  "service": "prometheus",
+  "passed": true,
+  "retries": 0,
+  "session_log": "logs/deploy/20260417-074500-prometheus.log",
+  "last_stage": "verify-runtime",
+  "summary": "3 passed, 0 failed, 0 skipped"
+}
+```
+
+`passed=false` with `retries == max_runtime_retries` means the
+orchestrator exhausted its budget — a human should read the session log
+and decide the next step.

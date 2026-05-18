@@ -1,0 +1,19 @@
+resources:
+  - all.yaml
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: StatefulSet
+      name: step-ca
+    patch: |
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: step-ca
+        annotations:
+          configmap.reloader.stakater.com/reload: step-ca-whitelist
+      spec:
+        template:
+          spec:
+            automountServiceAccountToken: false

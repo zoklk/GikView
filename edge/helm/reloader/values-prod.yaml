@@ -1,0 +1,5 @@
+reloader:
+  reloader:
+    deployment:
+      nodeSelector:
+        kubernetes.io/hostname: e-s1

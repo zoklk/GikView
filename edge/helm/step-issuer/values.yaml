@@ -1,0 +1,44 @@
+step-issuer:
+  replicaCount: 1
+  metrics:
+    enabled: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  # Upstream chart only sets runAsUser/Group, which trips trivy KSV checks.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  # cert-manager lives in gikview here; the approver binding subject must match
+  # or CertificateRequests stay unapproved.
+  certManager:
+    serviceAccount:
+      name: cert-manager
+      namespace: gikview
+
+stepClusterIssuer:
+  name: step-cluster-issuer
+  url: "https://step-ca.gikview.svc.cluster.local:9000"
+  provisionerName: admin
+  caBundle: ""    # base64 -w0 of root_ca.crt, per env
+  kid: ""         # admin JWK thumbprint, per env
+  provisionerPasswordSecret:
+    name: step-issuer-provisioner-password
+    namespace: ""
+    key: password
