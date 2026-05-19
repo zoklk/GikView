@@ -15,8 +15,81 @@ static WiFiClientSecure     s_secure;
 static PubSubClient         s_mqtt(s_secure);
 static char                 s_cn[32]     = {0};
 static uint32_t             s_last_reconn = 0;
+// EMQX 라운드 로빈 현재 슬롯 인덱스. setup 에서 성공한 슬롯에 고정되고,
+// 운영 중 disconnect → reconnect 가 실패하면 다음 슬롯으로 회전.
+static size_t               s_current_ep = 0;
 
 const char* current_cn() { return s_cn; }
+
+bool mqtt_session_connected() { return s_mqtt.connected(); }
+
+// 한 endpoint 에 대해 TCP → TLS → MQTT 3단 probe 시도. 모두 통과 시 true.
+// 호출 전제: BearSSL trust anchor / client cert chain 이 s_secure 에 이미 설정되어 있음.
+static bool try_emqx_endpoint(size_t idx) {
+  const EmqxEndpoint& ep = EMQX_ENDPOINTS[idx];
+  IPAddress ip;
+  if (!ip.fromString(ep.ip)) {
+    Serial.printf("[op] endpoint[%u] bad IP: %s\n", (unsigned)idx, ep.ip);
+    return false;
+  }
+
+  Serial.printf("[op] endpoint[%u] try %s:%d, heap=%d\n",
+                (unsigned)idx, ep.ip, ep.port, ESP.getFreeHeap());
+
+  // 1) TCP probe — TLS 전 도달성 격리
+  {
+    WiFiClient tcp;
+    tcp.setNoDelay(true);
+    uint32_t t = millis();
+    bool tcp_ok = tcp.connect(ip, ep.port);
+    Serial.printf("[op] TCP probe ok=%d, %lums\n", tcp_ok, millis() - t);
+    tcp.stop();
+    if (!tcp_ok) return false;
+  }
+
+#if ENABLE_DIAG_TLS_PROBE
+  // 2) TLS probe — mTLS 핸드셰이크 단독 시도. PubSubClient 안에서 실패하면
+  // BearSSL 에러가 mqtt.state=-2 한 가지로 묶여 분리 진단 어려움.
+  // 운영에선 핸드셰이크가 2배 → fragmentation. 디버깅 때만 활성화.
+  Serial.printf("[op] direct TLS probe → %s:%d\n", ep.ip, ep.port);
+  Serial.flush();
+  uint32_t t_tls = millis();
+  bool tls_ok = s_secure.connect(ip, ep.port);
+  uint32_t tls_ms = millis() - t_tls;
+  {
+    char err[128];
+    int code = s_secure.getLastSSLError(err, sizeof(err));
+    Serial.printf("[op] direct TLS ok=%d, %lums, heap=%d, ssl=%d (0x%x): %s\n",
+                  tls_ok, tls_ms, ESP.getFreeHeap(), code, code, err);
+  }
+  if (!tls_ok) {
+    s_secure.stop();
+    return false;
+  }
+  s_secure.stop();
+#endif
+
+  // 3) MQTT connect
+  s_mqtt.setServer(ip, ep.port);
+  Serial.printf("[op] mqtt.connect as %s\n", s_cn);
+  Serial.flush();
+  uint32_t t0 = millis();
+  bool ok = s_mqtt.connect(s_cn);
+  Serial.flush();
+  Serial.printf("[op] mqtt.connect returned %lums ok=%d, heap=%d\n",
+                millis() - t0, ok, ESP.getFreeHeap());
+  if (!ok) {
+    char err[128];
+    int code = s_secure.getLastSSLError(err, sizeof(err));
+    // PubSubClient state: -4=timeout, -3=conn_lost, -2=connect_failed,
+    //                     -1=disconnected, 0=connected,
+    //                      1=bad_protocol, 2=bad_id, 3=unavailable,
+    //                      4=bad_credentials, 5=unauthorized
+    Serial.printf("[op] ssl=%d (0x%x): %s | mqtt.state=%d\n",
+                  code, code, err, s_mqtt.state());
+  }
+  return ok;
+}
 
 static void derive_cn() {
   if (DEVICE_CN_OVERRIDE && DEVICE_CN_OVERRIDE[0]) {
@@ -65,70 +138,23 @@ bool setup_operational() {
   s_secure.setClientECCert(s_dev_chain, s_dev_key, 0xFFFF, 2);
   s_secure.setBufferSizes(TLS_RX_BUFFER, TLS_TX_BUFFER);
 
+  // 라운드 로빈: s_current_ep 부터 시작해 모든 슬롯 순회. 첫 성공 슬롯에 고정.
   // IPAddress connect → server_name=NULL → SAN skip, chain ✓.
-  IPAddress emqx_ip;
-  if (!emqx_ip.fromString(EMQX_HOST_IP)) {
-    Serial.printf("[op] bad EMQX_HOST_IP: %s\n", EMQX_HOST_IP);
-    return false;
-  }
-
-  Serial.printf("[op] pre-connect heap=%d, cn=%s, target=%s:%d\n",
-                ESP.getFreeHeap(), s_cn, EMQX_HOST_IP, EMQX_PORT);
-
-  // 1) TCP probe — TLS 전 도달성 격리
-  {
-    WiFiClient tcp;
-    tcp.setNoDelay(true);
-    uint32_t t = millis();
-    bool tcp_ok = tcp.connect(emqx_ip, EMQX_PORT);
-    Serial.printf("[op] TCP probe ok=%d, %lums\n", tcp_ok, millis() - t);
-    tcp.stop();
-    if (!tcp_ok) {
-      Serial.println("[op] TCP fail — 포트포워딩 / EMQX listen 확인");
-      return false;
+  Serial.printf("[op] pre-connect heap=%d, cn=%s\n", ESP.getFreeHeap(), s_cn);
+  for (size_t i = 0; i < EMQX_ENDPOINT_COUNT; i++) {
+    size_t idx = (s_current_ep + i) % EMQX_ENDPOINT_COUNT;
+    const EmqxEndpoint& ep = EMQX_ENDPOINTS[idx];
+    if (try_emqx_endpoint(idx)) {
+      s_current_ep = idx;
+      Serial.printf("[op] endpoint[%u] %s:%d 선택 완료\n",
+                    (unsigned)idx, ep.ip, ep.port);
+      return true;
     }
+    Serial.printf("[op] endpoint[%u] %s:%d 실패 — 다음 슬롯 시도\n",
+                  (unsigned)idx, ep.ip, ep.port);
   }
-
-  // 2) TLS probe — mTLS 핸드셰이크 단독 시도. PubSubClient 안에서 실패하면
-  // BearSSL 에러가 mqtt.state=-2 한 가지로 묶여 분리 진단 어려움.
-  Serial.printf("[op] direct TLS probe → %s:%d\n", EMQX_HOST_IP, EMQX_PORT);
-  Serial.flush();
-  uint32_t t_tls = millis();
-  bool tls_ok = s_secure.connect(emqx_ip, EMQX_PORT);
-  uint32_t tls_ms = millis() - t_tls;
-  {
-    char err[128];
-    int code = s_secure.getLastSSLError(err, sizeof(err));
-    Serial.printf("[op] direct TLS ok=%d, %lums, heap=%d, ssl=%d (0x%x): %s\n",
-                  tls_ok, tls_ms, ESP.getFreeHeap(), code, code, err);
-  }
-  if (!tls_ok) {
-    s_secure.stop();
-    return false;
-  }
-  s_secure.stop();
-
-  // 3) MQTT connect
-  s_mqtt.setServer(emqx_ip, EMQX_PORT);
-  Serial.printf("[op] mqtt.connect as %s\n", s_cn);
-  Serial.flush();
-  uint32_t t0 = millis();
-  bool ok = s_mqtt.connect(s_cn);
-  Serial.flush();
-  Serial.printf("[op] mqtt.connect returned %lums ok=%d, heap=%d\n",
-                millis() - t0, ok, ESP.getFreeHeap());
-
-  if (!ok) {
-    char err[128];
-    int code = s_secure.getLastSSLError(err, sizeof(err));
-    // PubSubClient state: -4=timeout, -3=conn_lost, -2=connect_failed,
-    //                     -1=disconnected, 0=connected,
-    //                      1=bad_protocol, 2=bad_id, 3=unavailable,
-    //                      4=bad_credentials, 5=unauthorized
-    Serial.printf("[op] ssl=%d (0x%x): %s | mqtt.state=%d\n",
-                  code, code, err, s_mqtt.state());
-  }
-  return ok;
+  Serial.println("[op] 모든 EMQX 엔드포인트 실패");
+  return false;
 }
 
 void publish_occupancy() {
@@ -175,6 +201,20 @@ void mqtt_session_loop() {
   if (now - s_last_reconn < 5000) return;
   s_last_reconn = now;
 
-  Serial.println("[loop] mqtt reconnect");
-  s_mqtt.connect(s_cn);
+  // 현재 슬롯으로 먼저 시도 — 일시 끊김이면 그대로 회복. 실패 시 다음 슬롯으로 회전.
+  const EmqxEndpoint& ep = EMQX_ENDPOINTS[s_current_ep];
+  IPAddress ip;
+  if (!ip.fromString(ep.ip)) return;
+  s_mqtt.setServer(ip, ep.port);
+  Serial.printf("[loop] mqtt reconnect endpoint[%u] %s:%d\n",
+                (unsigned)s_current_ep, ep.ip, ep.port);
+  bool ok = s_mqtt.connect(s_cn);
+  if (!ok) {
+    // 실패한 mTLS 핸드셰이크가 s_secure 안에 stale BearSSL state + lwIP TCP PCB
+    // 잔존시킴 — 정리 안 하면 살아있는 다른 슬롯에도 연쇄 실패. 명시적 stop.
+    s_secure.stop();
+    s_current_ep = (s_current_ep + 1) % EMQX_ENDPOINT_COUNT;
+    Serial.printf("[loop] reconnect 실패 — 다음 슬롯[%u] 으로 회전\n",
+                  (unsigned)s_current_ep);
+  }
 }

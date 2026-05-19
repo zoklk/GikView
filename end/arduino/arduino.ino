@@ -152,24 +152,40 @@ void loop() {
 
   if (now_ms - last_chk > RENEW_CHECK_INTV_MS) {
     last_chk = now_ms;
-    time_t exp = read_exp();
-    if (exp != 0) {
-      long until = (long)(exp - time(nullptr));
-      Serial.printf("[loop] cert exp in %lds (renew window=%us)\n",
-                    until, RENEW_BEFORE_SEC);
-      if (until <= (long)RENEW_BEFORE_SEC) {
-        Serial.println("[loop] 갱신 윈도우 진입 — teardown + provision_cert(renew)");
-        // mqtt + BearSSL 객체가 ~7-8KB heap 잡고 있어 rekey 의 mTLS 핸드셰이크
-        // (RX/TX 6KB + 추가 X509List/PrivateKey) alloc 이 실패. renew 동안 일시 해제.
-        mqtt_session_teardown();
-        bool renew_ok = provision_cert(true);
-        if (!renew_ok) {
+    // mqtt 끊긴 상태에서 renew 시도하면:
+    //   1) step-ca 가 EMQX 와 같은 네트워크 → HTTPS 도 못 닿을 확률 높음
+    //   2) 직전 reconnect 실패가 BearSSL alloc/free 로 heap fragmentation 남김
+    //      → rekey 핸드셰이크 (~10KB 연속 alloc) OOM 위험
+    // 연결 회복 우선 — 다음 RENEW_CHECK_INTV_MS (1h) 후 재검사.
+    // 트레이드오프: renew window 전체 (7d) 동안 mqtt 회복 못 하면 cert 만료 → 사람 손.
+    if (!mqtt_session_connected()) {
+      Serial.println("[loop] mqtt 미연결 — renew 검사 스킵");
+    } else {
+      time_t exp = read_exp();
+      if (exp != 0) {
+        long until = (long)(exp - time(nullptr));
+        Serial.printf("[loop] cert exp in %lds (renew window=%us)\n",
+                      until, RENEW_BEFORE_SEC);
+        if (until <= (long)RENEW_BEFORE_SEC) {
+          Serial.println("[loop] 갱신 윈도우 진입 — teardown + provision_cert(renew)");
+          // mqtt + BearSSL 객체가 ~7-8KB heap 잡고 있어 rekey 의 mTLS 핸드셰이크
+          // (RX/TX 6KB + 추가 X509List/PrivateKey) alloc 이 실패. renew 동안 일시 해제.
+          mqtt_session_teardown();
+          bool renew_ok = provision_cert(true);
+          if (renew_ok) {
+            // rekey 핸드셰이크 직후의 holey heap 에 곧바로 EMQX mTLS 핸드셰이크를 또
+            // 얹으면 fragmentation 으로 OOM (3KB alloc fail) 됨. bootstrap 처럼 reboot
+            // 으로 clean heap 확보. 갱신은 운영에서 30d 주기라 publish 갭 무시 가능.
+            Serial.println("[loop] renew OK — clean heap 위해 reboot");
+            delay(2000);
+            ESP.restart();
+          }
+          // 실패 시 옛 cert 가 LittleFS 에 그대로 남아있어 (원자적 rename) mqtt 재연결
+          // 가능. 옛 cert 만료 직전이면 곧 EMQX handshake 거부되겠지만 그 사이까지는
+          // publish 유지. reboot 하면 다시 RENEW 모드로 들어와 재시도 — 어느 쪽이든 OK.
           Serial.println("[loop] renew FAIL — 옛 cert 로 mqtt 회복 시도");
+          setup_operational();
         }
-        // 성공/실패 둘 다 setup_operational 재진입 — 실패 시 옛 cert 가 LittleFS 에
-        // 그대로 남아있어 (원자적 rename) mqtt 재연결 가능. 옛 cert 만료 직전이면
-        // 곧 EMQX handshake 거부되겠지만 그 사이까지는 publish 유지.
-        setup_operational();
       }
     }
   }

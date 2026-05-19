@@ -15,8 +15,14 @@ constexpr const char* WIFI_PASS = "";
 constexpr const char* STEP_CA_HOST_IP = "";  // 공유기 외부 IP
 constexpr int         STEP_CA_PORT    = 0;   // 외부 포트 → 노드 31900 포트포워딩
 
-constexpr const char* EMQX_HOST_IP    = "";  // 공유기 외부 IP
-constexpr int         EMQX_PORT       = 0;   // 외부 포트 → 노드 31884 포트포워딩
+// EMQX 라운드 로빈: 2개 인스턴스 — 1차 실패 시 다음 슬롯으로 fallback.
+// 같은 step-ca Root CA 체인이라 BearSSL trust anchor 공유.
+struct EmqxEndpoint { const char* ip; int port; };
+constexpr EmqxEndpoint EMQX_ENDPOINTS[] = {
+  {"", 0},   // 1차 인스턴스 (공유기 외부 IP, NodePort 포트포워딩 포트)
+  {"", 0},   // 2차 인스턴스
+};
+constexpr size_t EMQX_ENDPOINT_COUNT = sizeof(EMQX_ENDPOINTS) / sizeof(EMQX_ENDPOINTS[0]);
 
 // ── step-ca API ─────────────────────────────────────────────────────────
 constexpr const char* STEP_CA_SIGN_PATH    = "/1.0/sign";    // bootstrap (X5C JWT)
@@ -44,6 +50,10 @@ constexpr uint32_t RENEW_CHECK_INTV_MS    = 3600000;    // 1h 간격 검사
 // ── 진단 토글 (운영=0, 디버깅=1) ──────────────────────────────────────
 #define ENABLE_DIAG_STEPCA_PROBE 0   // step-ca /health 1회 probe
 #define ENABLE_DIAG_WIFI_SCAN    0   // 부팅 시 AP 스캔 + 로그
+// EMQX endpoint TLS 핸드셰이크 단독 시도. mqtt.connect 가 ssl/mqtt 에러를
+// state=-2 한 가지로 묶어버려 분리 진단용. 운영에선 핸드셰이크가 2배라
+// heap fragmentation 가속 → renew 직후 OOM 위험. 디버깅 때만 1.
+#define ENABLE_DIAG_TLS_PROBE    0
 
 // ── 테스트 시나리오 ────────────────────────────────────────────────────
 #define TEST_FOREIGN_TOPIC  0        // 남의 device 토픽 publish (ACL deny 기대)
