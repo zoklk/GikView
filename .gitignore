@@ -31,3 +31,6 @@ bootstrap_ca*
 intermediate_ca*
 root_ca*
 smoke-bootstrap*
+
+# end 펌웨어 환경 특정 설정 + LittleFS 자산 (cert/key)
+end/arduino/config.h

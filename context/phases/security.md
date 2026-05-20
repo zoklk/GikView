@@ -177,8 +177,15 @@
 
 ## 후속 작업 (본 phase 범위 외, 디바이스/펌웨어 작업)
 
-- **ESP8266 펌웨어 EST-like 흐름** (인프라 1, 코드 — 본 phase 범위 외)
+- **ESP8266 펌웨어 EST-like 흐름** (인프라 1, 코드 — 본 phase 범위 외, 완료 — `docs/architecture/end.md` 참조)
   - 표준 BearSSL secure client 가 키 생성/CSR(PKCS#10)/EST 를 안 줘서 BearSSL(mTLS+HTTPS) + uECC(P-256 키생성) + 자체 ASN.1 DER CSR 인코딩 조합 채택. 조합 근거·디바이스 메모리 제약·검증된 트레이드오프는 `context/knowledge/step-ca.md`.
-  - 부트스트랩 흐름: 첫 부팅 시 키페어 생성 → CSR(CN = `device-XXXXXX`, SAN 은 없거나 같은 값의 **DNS SAN 만** — IP SAN 넣으면 step-ca 가 발급 거부) → JWT(x5c=부트스트랩 cert) → step-ca `/1.0/sign` → 정식 cert LittleFS 저장 → 부트스트랩 cert/키 삭제. 운영 중 만료 30d 전 `/1.0/renew`. EMQX 핸드셰이크엔 `[leaf, intermediate]` 둘 다 제시.
+  - 부트스트랩 흐름 — **2단계 발급** (`device-bootstrap.disableRenewal: true` 라 그 ext 로는 mTLS rekey 불가 → 운영 cert 의 provisioner-extension 을 `device-renewal` 로 전환해야 함):
+    1. 첫 부팅 시 키페어 생성 → CSR(CN = `device-XXXXXX`, SAN 없음 또는 같은 값의 **DNS SAN 만** — IP SAN 넣으면 step-ca 가 발급 거부)
+    2. 1차 발급: JWT(x5c=부트스트랩 cert) → `/1.0/sign(aud=#x5c/device-bootstrap)` → 1차 cert (ext=device-bootstrap)
+    3. 2차 발급: 새 키페어 + 새 CSR + JWT(x5c=1차 cert) → `/1.0/sign(aud=#x5c/device-renewal)` → 2차 cert (ext=device-renewal). X5C `forbiddenAfter` 정책으로 새 cert notAfter 가 signer notAfter 너머이면 403 거부되므로 client 측에서 `min(요청값, signer_notAfter - 60s)` 로 클램프
+    4. 2차 cert 를 LittleFS 저장 → 부트스트랩 cert/키 삭제 → reboot
+  - 운영 중 갱신은 `/1.0/rekey` + **mTLS** (현 device cert/key 로 TLS 핸드셰이크) + body=`{"csr": "<new CSR PEM>"}`. JWT 불필요. `/1.0/renew` 는 key rotation 미지원이라 미채택. mTLS 인증이라 X5C `forbiddenAfter` 미적용, 새 cert duration = 옛 cert duration (step-ca 의 renew/rekey 정책). EMQX 핸드셰이크엔 `[leaf, intermediate]` 둘 다 제시 (결정 12번)
+  - 정식 cert 의 실효 lifetime ≤ bootstrap cert 잔여 — 1차 발급이 X5C `forbiddenAfter` 자동 클램프 (server-side) 로 bootstrap 잔여로 잘리고, 이후 rekey 가 옛 duration 유지하므로 bootstrap cert lifetime 이 운영 cert lifetime 의 영구 상한
+  - **trust 전략**: 디바이스가 step-ca / EMQX 양쪽에 IP 로 connect, `setTrustAnchors(rootCA)` 로 chain 검증만 적용 (BearSSL `server_name=NULL` 경로). ESP8266 Arduino lwIP2 의 `DNS_LOCAL_HOSTLIST` 매크로가 기본 비활성화라 `dns_local_addhost` 미노출 → hostname connect 불가 → SAN 매칭 스킵 받아들임 (위협 모델 결정 6번 범위 안). 결정 11번의 "운영 trust 후속 ADR" 자리에 해당
   - 부트스트랩 cert/키 NVS 굽기: 인프라 2 가 step CLI 발급 → 안전 채널 전달 → 인프라 1 이 LittleFS 이미지에 포함.
 - **Edge Gateway / Telegraf 배포** (다음 phase): 본 phase 의 PKI 가 동작한 후 가능.
