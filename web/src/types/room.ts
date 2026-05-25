@@ -1,5 +1,4 @@
 // src/types/room.ts
-
 export interface Room {
   id: string;
   name: string;
@@ -8,9 +7,4 @@ export interface Room {
   isOccupied: boolean;
   description?: string;
 }
-
-export interface HistoryLog {
-  timestamp: string;
-  roomId: string;
-  status: 'occupied' | 'cleared';
-}
+// HistoryLog 인터페이스 삭제 완료
