@@ -3,6 +3,10 @@
 #pragma once
 #include <Arduino.h>
 
+void setup_sensor();
+
+void update_sensor();
+
 // 0/1. stub.
 int read_occupancy();
 
