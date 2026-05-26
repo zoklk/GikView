@@ -10,7 +10,7 @@
 
 SoftwareSerial sensorSerial(SENSOR_RX_PIN, SENSOR_TX_PIN);
 
-// 내부에서만 사용할 전역 변수
+// 젼역 변수 대신 static으로 선언
 static int currentOccupancy = 0; 
 
 // static 버퍼 할당(퇴대 64 바이트)

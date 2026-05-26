@@ -14,5 +14,3 @@ int read_occupancy();
 //   {"occupancy":N,"timestamp":"YYYY-MM-DDThh:mm:ssZ","bssid":"aa:bb:cc:dd:ee:ff","rssi":-67}
 // out 권장 160B. 반환 = 쓰인 길이.
 size_t build_sensor_payload(char* out, size_t out_size);
-
-#endif
