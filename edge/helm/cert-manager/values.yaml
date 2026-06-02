@@ -1,0 +1,36 @@
+cert-manager:
+  # Keep CRDs on uninstall so Certificates aren't garbage-collected.
+  crds:
+    enabled: true
+    keep: true
+  global:
+    leaderElection:
+      namespace: gikview
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  prometheus:
+    enabled: false
+  webhook:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  cainjector:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

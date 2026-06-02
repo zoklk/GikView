@@ -1,0 +1,10 @@
+apiVersion: v2
+name: step-ca
+description: step-ca 0.30.2 umbrella with Intermediate CA via existingSecrets, chart-rendered ca.json, whitelist merge initContainer, NodePort exposure, local PV
+type: application
+version: 0.1.0
+appVersion: "0.30.2"
+dependencies:
+  - name: step-certificates
+    version: "1.30.1"
+    repository: "https://smallstep.github.io/helm-charts/"

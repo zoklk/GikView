@@ -1,0 +1,13 @@
+{{- /* SoT for device->room. Derived ConfigMaps are written by the Job/CronJob, not here. */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-room-mapping
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mapping-generator.labels" . | nindent 4 }}
+data:
+  mapping.csv: |
+    {{- range $device, $room := .Values.deviceRoomMapping }}
+    {{ $device }},{{ $room }}
+    {{- end }}

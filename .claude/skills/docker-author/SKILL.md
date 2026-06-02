@@ -1,0 +1,110 @@
+---
+name: docker-author
+description: Reference for writing or modifying Dockerfiles under edge/docker/<service>/. Load before editing a Dockerfile or related build files.
+---
+
+# Docker author
+
+Read this before touching `edge/docker/<service>/Dockerfile`.
+
+## When this skill does NOT apply
+
+If the service pulls an upstream image (emqx, postgresql, redis,
+prometheus, …) and you are **not** customizing the image, do not
+create a Dockerfile. Leave `edge/docker/<service>/`
+missing entirely — the CLI's docker stage is gated on the presence
+of `Dockerfile` and will be skipped. The upstream image path goes
+into `values.yaml` (`image.repository: emqx/emqx` etc.), not into
+`<registry>/<service>`. See `helm-chart-author` for the values side.
+
+## Required layout
+
+```
+edge/docker/<service>/
+├── Dockerfile              # required — detection-gate for the docker stage
+└── (app source or build context as needed)
+```
+
+`python -m harness apply --service <svc>` only runs the docker stage
+when `Dockerfile` exists at this path.
+
+## Build + push flow (handled by the CLI)
+
+The CLI assembles one multi-arch `buildx` command (build and push are a
+single step — a multi-platform image is a manifest list and can't be
+loaded into the local docker, so it goes straight to the registry):
+
+```
+docker buildx build \
+  --platform <conventions.build_platforms joined by ",">  \
+  -t <registry>/<service>:<image-tag> \
+  --push \
+  edge/docker/<service>
+```
+
+- `registry` ← `conventions.registry` in `config/harness.yaml`
+- `build_platforms` ← `conventions.build_platforms` (default `linux/amd64,linux/arm64`)
+- `image-tag` ← `conventions.image_tag`
+
+You do not invoke docker yourself. You only write the Dockerfile — and
+it must build cleanly on **every** platform in `build_platforms` (no
+arch-specific binary downloads without a `TARGETARCH` switch; `buildx`
+provides `TARGETPLATFORM`/`TARGETARCH`/`TARGETOS` build args).
+
+> The machine running `/deploy` needs a `docker-container` buildx
+> builder (+ binfmt/QEMU for foreign arches) — a one-time host setup.
+> See the project README "사전 준비".
+
+## Multi-stage template
+
+Prefer two-stage builds: a build stage with the full toolchain, and a
+minimal runtime stage that copies only the artifacts it needs.
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM alpine:3.19 AS build
+WORKDIR /src
+COPY . .
+RUN apk add --no-cache build-base && make build
+
+FROM alpine:3.19
+RUN addgroup -S app && adduser -S app -G app
+WORKDIR /app
+COPY --from=build /src/bin/service /app/service
+USER app
+EXPOSE 8080
+ENTRYPOINT ["/app/service"]
+```
+
+## hadolint rules to follow
+
+The static stage runs `hadolint <Dockerfile>`. Common fixes:
+
+- **DL3008** — pin apt/apk package versions *or* suppress explicitly.
+  For apk prefer `apk add --no-cache`; apt use
+  `apt-get install -y --no-install-recommends foo=1.2.3` plus
+  `apt-get clean && rm -rf /var/lib/apt/lists/*`.
+- **DL3002** — do not run as `root`; add a non-root user and `USER` it.
+- **DL3025** — use JSON array form for `CMD` / `ENTRYPOINT`
+  (`["/app/service"]`, not `"/app/service"`).
+- **DL3007** — avoid `latest` in `FROM`; pin a version tag or digest.
+
+## hadolint config (optional)
+
+If you must suppress a rule, add `edge/docker/<service>/.hadolint.yaml`:
+
+```yaml
+ignored:
+  - DL3008     # with a brief reason in a comment alongside
+```
+
+Do not add global suppressions to the repo root.
+
+## Registry & push
+
+- `conventions.registry` must be set and reachable by the cluster — a
+  multi-arch `buildx --push` pushes the manifest list straight to the
+  registry, so an empty `registry` is a hard error (the docker stage
+  fails), not "build only".
+- The CLI does not log into the registry. Configure credentials in
+  your shell environment before running `/deploy` (`docker login …`).

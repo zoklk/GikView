@@ -1,0 +1,5 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s1
+
+deviceRoomMapping:
+  device-aaaaaa: room-a-9-9

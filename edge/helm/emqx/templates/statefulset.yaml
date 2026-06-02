@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "emqx.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.tls.secretName | quote }}
+    configmap.reloader.stakater.com/reload: {{ .Values.acl.configMapName | quote }}
+spec:
+  serviceName: {{ .Chart.Name }}-headless
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "emqx.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "emqx.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "emqx.selectorLabels" . | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: emqx
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: mqtts
+              containerPort: {{ .Values.service.ports.mqtts }}
+              protocol: TCP
+            - name: dashboard
+              containerPort: {{ .Values.service.ports.dashboard }}
+              protocol: TCP
+            - name: ekka
+              containerPort: {{ .Values.service.ports.ekka }}
+              protocol: TCP
+          # Dashboard binds to loopback; kubelet probes pod IP, so probe mqtts instead.
+          readinessProbe:
+            tcpSocket:
+              port: mqtts
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- range $key, $val := .Values.emqxConfig }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: emqx-data
+              mountPath: /opt/emqx/data
+            - name: emqx-log
+              mountPath: /opt/emqx/log
+            - name: tmp
+              mountPath: /tmp
+            - name: emqx-tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            - name: emqx-acl
+              mountPath: {{ .Values.acl.mountPath }}
+              readOnly: true
+      volumes:
+        - name: emqx-data
+          emptyDir: {}
+        - name: emqx-log
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: emqx-tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        - name: emqx-acl
+          configMap:
+            name: {{ .Values.acl.configMapName }}

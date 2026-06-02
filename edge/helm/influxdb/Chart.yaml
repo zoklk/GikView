@@ -1,0 +1,5 @@
+apiVersion: v2
+name: influxdb
+version: 0.1.0
+appVersion: "3.9-core"
+description: InfluxDB 3 Core single-pod time-series database with local PV

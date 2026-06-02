@@ -1,0 +1,24 @@
+{{- /* Local PV for the badger DB. Retain reclaim so issuance history survives reinstall. */ -}}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.persistence.pvName }}
+  labels:
+    {{- include "step-ca.labels" . | nindent 4 }}
+spec:
+  capacity:
+    storage: {{ index .Values "step-certificates" "ca" "db" "size" }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Values.persistence.storageClassName }}
+  local:
+    path: {{ .Values.persistence.hostPath }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - {{ .Values.persistence.nodeHostname }}

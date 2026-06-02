@@ -1,0 +1,169 @@
+---
+name: helm-chart-author
+description: Reference for writing or modifying Helm chart files (Chart.yaml, values*.yaml, templates/**) under the project's convention path. Load before editing edge/helm/<service>/**.
+---
+
+# Helm chart author
+
+Read this before touching anything under `edge/helm/<service>/`.
+Follow the project's conventions defined in `config/harness.yaml` — do
+**not** hardcode names, paths, or release patterns in chart files.
+
+## Directory layout
+
+```
+edge/helm/<service>/
+├── Chart.yaml
+├── values.yaml             # defaults shared across envs
+├── values-dev.yaml         # dev overrides (loaded by verify-static/apply)
+├── values-prod.yaml        # prod overrides (activated via environments.active)
+└── templates/
+    ├── deployment.yaml     # or statefulset/daemonset/cronjob
+    ├── service.yaml
+    └── _helpers.tpl
+```
+
+The active environment's values file is selected by
+`conventions.values_files` in `config/harness.yaml`, with `{active_env}`
+bound at runtime. Keep the list short and predictable.
+
+## Chart.yaml
+
+Minimum fields:
+
+```yaml
+apiVersion: v2
+name: <service>            # must match the folder name
+version: 0.1.0             # bump on breaking changes
+appVersion: "0.1.0"        # the app/image version, free-form
+description: Short, factual description
+```
+
+## Release naming
+
+The orchestrator resolves release names via
+`conventions.release_name` — default `"{service}"`.
+Never hardcode the release name in templates. Use
+`{{ .Release.Name }}` in Go templates and trust the CLI to pass the
+correct release name to `helm upgrade`.
+
+## Labels (mandatory)
+
+Every workload and service must carry:
+
+```yaml
+metadata:
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+```
+
+`conventions.label_selector` defaults to `app.kubernetes.io/name={service}`;
+`kubectl wait` and `kubectl get pods` queries depend on it, so the
+label must be present on the pods.
+
+## values.yaml vs values-<env>.yaml
+
+- `values.yaml` — defaults that are the same everywhere (container
+  names, default ports, image repository base).
+- `values-<env>.yaml` — env-specific knobs **only**:
+  - `image.tag` if the env has a different release
+  - `nodeSelector` from `environments.<env>.node_selectors`
+    (see `cluster-env-inject` for resolution order — prefer the
+    service's explicit `**node_category**` over inference)
+  - domain-dependent settings using `environments.<env>.domain_suffix`
+  - replica counts if different per env
+
+Anything that never changes between envs belongs in `values.yaml`.
+
+## image.repository — upstream vs self-built
+
+Before writing `image.repository`, check whether
+`edge/docker/<service>/Dockerfile` exists.
+
+- **Self-built** (Dockerfile present): `image.repository` should be
+  `<registry>/<service>`, where `<registry>` comes from
+  `conventions.registry` in `config/harness.yaml`. The CLI builds
+  and pushes this image during `apply`.
+- **Upstream** (no Dockerfile): `image.repository` must be the
+  upstream path (e.g. `emqx/emqx`, `bitnami/postgresql`,
+  `prom/prometheus`). Do **not** rewrite it to
+  `<registry>/<service>` — the CLI does not push anything for
+  upstream services, so that path would not exist.
+
+`image.tag` follows the same split: self-built uses
+`conventions.image_tag`; upstream pins a specific upstream release
+(e.g. `"5.8.6"`). Never leave `image.tag: latest` for either case.
+
+If you are unsure which mode a service uses, check for the presence
+of `edge/docker/<service>/Dockerfile` before editing.
+
+## Patching a vendored subchart (post-render)
+
+When this chart pulls an upstream chart as a `dependencies:` entry and
+that subchart's rendered manifest needs a tweak it exposes no value
+for (the classic case: a Reloader annotation —
+`reloader.stakater.com/auto` or `configmap.reloader.stakater.com/reload`
+— on the upstream `Deployment`/`StatefulSet` `metadata.annotations`,
+which Reloader reads from the workload object, not the pod template),
+**do not hand-edit the vendored `charts/*.tgz`**. Drop a post-renderer
+into the chart directory:
+
+```
+edge/helm/<service>/
+├── Chart.yaml
+├── post-render.sh          # executable — `chmod +x`
+└── kustomization.yaml
+```
+
+```sh
+# post-render.sh
+#!/bin/sh
+set -e
+d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+cat > "$d/all.yaml"
+cp "$(dirname "$0")/kustomization.yaml" "$d/"
+kubectl kustomize "$d"
+```
+
+```yaml
+# kustomization.yaml
+resources: [all.yaml]
+patches:
+  - target: { group: apps, version: v1, kind: StatefulSet, name: <upstream-name> }
+    patch: |
+      - op: add
+        path: /metadata/annotations/configmap.reloader.stakater.com~1reload
+        value: <configmap-name>
+```
+
+The harness auto-detects an executable file named per
+`conventions.post_render_script` (default `post-render.sh`) and adds
+`--post-renderer <abs path>` to `helm template`, `helm upgrade --install`,
+and `helm upgrade --dry-run=server` — so kubeconform / dry-run validate
+the patched output too. Nothing to wire up; if the file isn't there (or
+isn't executable) it's a no-op. Prefer real chart values whenever the
+subchart offers them — reach for this only when it genuinely doesn't.
+
+## Kubeconform / yamllint cleanliness
+
+- Keep `apiVersion`, `kind`, `metadata` at the top of every manifest.
+- Do not leave empty lists (`imagePullSecrets: []`) — remove the key
+  or omit it with `{{- if … }}`.
+- No tabs. Two-space indent. Trailing newline.
+
+## Checks that run against the chart
+
+`python -m harness verify-static --service <svc>` runs (when enabled):
+
+- `yamllint` (excludes `templates/`)
+- `helm lint` with all `values.yaml` + `values-<active_env>.yaml` passed via `-f`
+- `helm template … | kubeconform -strict -ignore-missing-schemas`
+  (+ `--post-renderer` if a `post-render.sh` is present — see above)
+- `trivy config` on the chart directory
+- `gitleaks detect` on the chart directory
+- `helm upgrade --install --dry-run=server` (needs cluster; also `--post-renderer` aware)
+
+The PostToolUse hook runs only `yamllint` on the single touched file
+for fast feedback; the full suite runs at `/deploy` time.
