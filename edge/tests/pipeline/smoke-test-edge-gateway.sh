@@ -140,10 +140,8 @@ try:
     for s in data:
         topic = s.get('topic', '')
         clientid = s.get('clientid', '')
-        if topic == 'sensors/+/occupancy' and clientid.startswith('edge-gateway'):
-            grp = s.get('share_group') or s.get('group') or ''
-            if grp == 'edge-gw':
-                cnt += 1
+        if topic == '\$share/edge-gw/sensors/+/occupancy' and clientid.startswith('edge-gateway'):
+            cnt += 1
     print(cnt)
 except Exception:
     print(0)
@@ -155,7 +153,7 @@ done
 
 [ "$FOUND" -ge 1 ] || {
   echo "FAIL: emqx-subscription: no edge-gateway shared-subscription on sensors/+/occupancy (group=edge-gw)"
-  echo "  actual: subscriptions resp head=$(echo "$RESP" | head -c 600)"
+  echo "  actual: subscriptions resp head=$(echo "$RESP" | head -c 2000)"
   exit 1
 }
 
@@ -165,11 +163,16 @@ INFLUX_HEALTH=$(kubectl exec -n "$NS" "$POD" -- sh -c \
    || wget -qO- --header="Authorization: Bearer ${INFLUXDB_TOKEN}" "http://influxdb.gikview.svc.${DOMAIN_SUFFIX:-cluster.local}:8181/health" 2>/dev/null \
    || echo "FAIL_FETCH"' 2>/dev/null || echo "FAIL_EXEC")
 
-echo "$INFLUX_HEALTH" | grep -q '"status":[[:space:]]*"pass"' || {
-  echo "FAIL: influxdb-reach: edge-gateway pod cannot reach InfluxDB /health"
-  echo "  actual: $INFLUX_HEALTH"
-  exit 1
-}
+case "$INFLUX_HEALTH" in
+  *'"status":"pass"'*|*'"status": "pass"'*|OK|OK*)
+    : # InfluxDB 3 Core: plain "OK"; 1.x/2.x: JSON {"status":"pass"}
+    ;;
+  *)
+    echo "FAIL: influxdb-reach: edge-gateway pod cannot reach InfluxDB /health"
+    echo "  actual: $INFLUX_HEALTH"
+    exit 1
+    ;;
+esac
 
 # ── 7. aws_signing_helper + STS 도달성 ──────────────────────────────────────
 # 옵션 B: 임시 자격증명 발급 성공(prod 환경) 또는 STS 가 트러스트 체인 거부 응답

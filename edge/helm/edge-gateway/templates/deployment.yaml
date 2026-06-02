@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "edge-gateway.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.tls.secretName | quote }}
+    configmap.reloader.stakater.com/reload: {{ .Values.mapping.configMapName | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "edge-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "edge-gateway.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "edge-gateway.selectorLabels" . | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: edge-gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: EMQX_BROKER_URL
+              value: {{ .Values.emqx.brokerUrl | quote }}
+            - name: EMQX_SHARE_TOPIC
+              value: {{ .Values.emqx.shareTopic | quote }}
+            - name: INFLUXDB_URL
+              value: {{ .Values.influxdb.url | quote }}
+            - name: INFLUXDB_BUCKET
+              value: {{ .Values.influxdb.bucket | quote }}
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.influxdbTokenSecret.name }}
+                  key: {{ .Values.influxdbTokenSecret.key }}
+            - name: DYNAMODB_TABLE
+              value: {{ .Values.dynamodb.table | quote }}
+            - name: TRUST_ANCHOR_ARN
+              value: {{ .Values.iamRolesAnywhere.trustAnchorArn | quote }}
+            - name: PROFILE_ARN
+              value: {{ .Values.iamRolesAnywhere.profileArn | quote }}
+            - name: ROLE_ARN
+              value: {{ .Values.iamRolesAnywhere.roleArn | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.iamRolesAnywhere.region | quote }}
+            - name: TLS_CERT_FILE
+              value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+            - name: TLS_KEY_FILE
+              value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+            - name: TLS_CA_FILE
+              value: {{ printf "%s/ca.crt"  .Values.tls.mountPath | quote }}
+            - name: DEVICE_ROOM_MAPPING_FILE
+              value: {{ printf "%s/mapping.csv" .Values.mapping.mountPath | quote }}
+            - name: DOMAIN_SUFFIX
+              value: {{ .Values.domainSuffix | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: edge-gateway-tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            - name: device-room-mapping
+              mountPath: {{ .Values.mapping.mountPath }}
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: edge-gateway-tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        - name: device-room-mapping
+          configMap:
+            name: {{ .Values.mapping.configMapName }}
+        - name: tmp
+          emptyDir: {}
