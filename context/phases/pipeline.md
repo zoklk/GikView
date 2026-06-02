@@ -9,10 +9,10 @@
 `end/arduino/sensor.cpp` 의 `build_sensor_payload()` 출력. topic = `sensors/<device_id>/occupancy`.
 
 ```json
-{"occupancy":1,"timestamp":"2026-06-02T03:04:05Z","bssid":"aa:bb:cc:dd:ee:ff","rssi":-58}
+{"occupied":true,"timestamp":"2026-06-02T03:04:05Z","bssid":"aa:bb:cc:dd:ee:ff","rssi":-58}
 ```
 
-- `occupancy`: int `0|1` — Telegraf 와 Edge Gateway 가 각각 bool 변환 (InfluxDB field `occupied`, DynamoDB attribute `occupied`).
+- `occupied`: bool — passthrough (InfluxDB field `occupied`, DynamoDB attribute `occupied`).
 - `timestamp`: RFC3339 UTC `Z` suffix 고정 (`%Y-%m-%dT%H:%M:%SZ`). InfluxDB timestamp + DynamoDB `timestamp` attribute 로 passthrough.
 - `bssid`, `rssi`: AP 정보, InfluxDB only (DynamoDB 미저장).
 
@@ -33,7 +33,7 @@
   - issuerRef: StepClusterIssuer
 - **InfluxDB write**: admin token = `influxdb-admin-token` Secret 의 `token` 키 → env `INFLUXDB_TOKEN`. bucket=`gikview`, org=`""` (InfluxDB 3 Core 미지원).
 - **device_id → room_id 변환**: `telegraf-lookup` ConfigMap (mapping-generator wave `-1` 생성). `processors.lookup` 참조 경로 `/lookup/mapping.csv`.
-- **field 변환**: `processors.converter` 로 JSON `occupancy` (int) → field `occupied` (bool). `processors.regex` 로 topic → tag `device_id` 추출.
+- **tag 추출**: `processors.regex` 로 topic → tag `device_id` 추출.
 - **데이터 모델** (InfluxDB):
   - measurement: `occupancy`
   - tags: `room_id`, `bssid`
@@ -58,11 +58,10 @@
 - **Share group**: `$share/edge-gw/sensors/+/occupancy`, sticky 전략 — publisher connection 단위로 같은 pod 라우팅 → 인메모리 캐시 분산 안전.
 - **처리 흐름**:
   1. 메시지 수신 → topic 에서 `device_id` 파싱 → `device-room-mapping` ConfigMap 에서 `room_id` 조회
-  2. JSON `occupancy` (int 0/1) → bool 변환
-  3. 인메모리 캐시에서 `room_id` 현재 상태 확인
-  4. 캐시 miss → InfluxDB `last()` 쿼리로 복원 (pod 재시작·takeover)
-  5. 상태 변경 감지 → DynamoDB `PutItem` (IAM Roles Anywhere 임시 자격증명)
-  6. 캐시 갱신
+  2. 인메모리 캐시에서 `room_id` 현재 상태 확인
+  3. 캐시 miss → InfluxDB `last()` 쿼리로 복원 (pod 재시작·takeover)
+  4. 상태 변경 감지 → DynamoDB `PutItem` (IAM Roles Anywhere 임시 자격증명)
+  5. 캐시 갱신
 - **EMQX mTLS**: client cert CN=`edge-gateway`. cert-manager Certificate → step-issuer → step-ca. Secret `edge-gateway-tls`.
   - commonName: `edge-gateway`
   - duration: `2160h`, renewBefore: `720h`
@@ -78,7 +77,7 @@
 - **DynamoDB 쓰기 — `gikview-rooms`**:
   - PK = `room_id` (String). SK 없음 — 같은 room 의 최신 상태만 유지 (overwrite).
   - attributes:
-    - `occupied` (Boolean) — int 0/1 → bool 변환
+    - `occupied` (Boolean) — payload passthrough
     - `timestamp` (String) — payload RFC3339 passthrough
   - 작업 = `PutItem` (멱등 overwrite). 시계열 히스토리는 InfluxDB 가 담당.
   - `bssid`/`rssi`/`device_id` 미저장.
