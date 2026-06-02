@@ -1,0 +1,41 @@
+# .github/workflows/dev-frontend.yml
+name: Frontend Validation
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'web/frontend/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2.3.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: ESLint
+        working-directory: web/frontend
+        run: npm run lint
+
+      - name: Build validation
+        working-directory: web/frontend
+        run: npm run build
