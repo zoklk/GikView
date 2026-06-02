@@ -24,10 +24,24 @@ data:
       tls_key  = "{{ .Values.tls.mountPath }}/tls.key"
       tls_server_name = "${EMQX_SERVER_NAME}"
 
-      data_format        = "json"
-      json_string_fields = ["bssid"]
-      json_time_key      = "timestamp"
-      json_time_format   = "2006-01-02T15:04:05Z"
+      data_format = "json_v2"
+
+      [[inputs.mqtt_consumer.json_v2]]
+        measurement_name = "occupancy"
+        timestamp_path   = "timestamp"
+        timestamp_format = "2006-01-02T15:04:05Z"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "occupied"
+          type = "bool"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "bssid"
+          type = "string"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "rssi"
+          type = "int"
 
     [[processors.regex]]
       order = 0
