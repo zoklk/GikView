@@ -10,6 +10,11 @@ metadata:
     configmap.reloader.stakater.com/reload: {{ .Values.mapping.configMapName | quote }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       {{- include "edge-gateway.selectorLabels" . | nindent 6 }}
