@@ -9,8 +9,8 @@ dynamodb:
 
 iamRolesAnywhere:
   trustAnchorArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:trust-anchor/d2af7275-4f15-40f3-979f-65976d80ccbb"
-  profileArn:     "arn:aws:rolesanywhere:ap-northeast-2:585192672325:profile/157c7e0a-deaa-43a3-814f-6422530719c3"
-  roleArn:        "arn:aws:iam::585192672325:role/gikview-edgegw"
+  profileArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:profile/157c7e0a-deaa-43a3-814f-6422530719c3"
+  roleArn: "arn:aws:iam::585192672325:role/gikview-edgegw"
   region: ap-northeast-2
 
 domainSuffix: cluster.local
