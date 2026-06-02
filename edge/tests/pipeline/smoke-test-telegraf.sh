@@ -107,10 +107,10 @@ try:
     for s in data:
         topic = s.get('topic', '')
         clientid = s.get('clientid', '')
-        if topic == 'sensors/+/occupancy' and clientid.startswith('telegraf-'):
-            grp = s.get('share_group') or s.get('group') or ''
-            if grp == 'telegraf' or '\$share/telegraf/' in topic:
-                cnt += 1
+        if not clientid.startswith('telegraf-'):
+            continue
+        if topic == '\$share/telegraf/sensors/+/occupancy':
+            cnt += 1
     print(cnt)
 except Exception:
     print(0)
@@ -131,18 +131,23 @@ INFLUX_HEALTH=$(kubectl exec -n "$NS" "$POD" -- sh -c \
   'wget -qO- --header="Authorization: Bearer ${INFLUXDB_TOKEN}" http://influxdb.gikview.svc.cluster.local:8181/health 2>/dev/null || echo "FAIL_FETCH"' 2>/dev/null || echo "FAIL_EXEC")
 
 case "$INFLUX_HEALTH" in
-  *'"status":"pass"'*|*'"status": "pass"'*)
-    : # OK
+  *'"status":"pass"'*|*'"status": "pass"'*|OK|OK*)
+    : # InfluxDB 3 Core: plain "OK"; 1.x/2.x: JSON {"status":"pass"}
     ;;
   *)
     # alpha cluster: svc.alpha.nexus.local 또는 wget 미설치 가능. busybox env 차이 허용
     INFLUX_HEALTH2=$(kubectl exec -n "$NS" "$POD" -- sh -c \
       'wget -qO- --header="Authorization: Bearer ${INFLUXDB_TOKEN}" http://influxdb.gikview.svc.${DOMAIN_SUFFIX:-cluster.local}:8181/health 2>/dev/null || echo "FAIL_FETCH"' 2>/dev/null || echo "FAIL_EXEC")
-    echo "$INFLUX_HEALTH2" | grep -q '"status":[[:space:]]*"pass"' || {
-      echo "FAIL: influxdb-reach: telegraf pod cannot reach InfluxDB /health"
-      echo "  actual: first=$INFLUX_HEALTH ; second=$INFLUX_HEALTH2"
-      exit 1
-    }
+    case "$INFLUX_HEALTH2" in
+      *'"status":"pass"'*|*'"status": "pass"'*|OK|OK*)
+        : # OK
+        ;;
+      *)
+        echo "FAIL: influxdb-reach: telegraf pod cannot reach InfluxDB /health"
+        echo "  actual: first=$INFLUX_HEALTH ; second=$INFLUX_HEALTH2"
+        exit 1
+        ;;
+    esac
     ;;
 esac
 

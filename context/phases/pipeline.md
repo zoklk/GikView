@@ -93,7 +93,7 @@
 | ConfigMap | 생성 주체 | wave | 소비자 | 키 / 용도 |
 |---|---|---|---|---|
 | `device-room-mapping` | mapping-generator helm chart (SoT, 사람이 git commit) | `-1` (security) | Edge Gateway volumeMount | `mapping.csv` — `device_id,room_id`. SoT — 다른 CM 도 이걸로 derive |
-| `telegraf-lookup` | mapping-generator init Job (`device-room-mapping` derive) | `-1` (security) | Telegraf `processors.lookup` | `mapping.csv` — `device_id,room_id`. Telegraf 1.38 `processors.lookup` CSV 형식 |
+| `telegraf-lookup` | mapping-generator init Job (`device-room-mapping` derive) | `-1` (security) | Telegraf `processors.lookup` | `mapping.csv` — 첫 줄 헤더 `device_id,room_id` + 데이터 행. Telegraf 1.38 `processors.lookup` `format = "csv_key_values"` 형식 (SoT `device-room-mapping` 은 헤더 없음 — derive 단계에서 헤더 부착) |
 | `telegraf-config` | telegraf helm chart (자체 templates) | `2` | Telegraf `/etc/telegraf/telegraf.conf` | `telegraf.conf` — input/processor/output 선언. 환경별 EMQX endpoint·resource limits 분리 (values-<env>.yaml) |
 
 Edge Gateway 의 IAM Roles Anywhere ARN 3개 + region 은 ConfigMap 안 만듦 — `values-<env>.yaml` → Deployment env 직접 주입. 사유는 `## Service: edge-gateway > IAM Roles Anywhere`.

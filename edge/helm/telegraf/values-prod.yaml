@@ -1,0 +1,16 @@
+emqx:
+  url: "ssl://emqx.gikview.svc.cluster.local:8883"
+  serverName: "emqx.gikview.svc.cluster.local"
+
+influxdb:
+  url: "http://influxdb.gikview.svc.cluster.local:8181"
+
+domainSuffix: cluster.local
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "128Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
