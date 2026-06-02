@@ -1,0 +1,5 @@
+apiVersion: v2
+name: edge-gateway
+version: 0.1.0
+appVersion: "0.1.0"
+description: Edge Gateway — EMQX shared subscription consumer, occupancy state change detector, DynamoDB writer via IAM Roles Anywhere

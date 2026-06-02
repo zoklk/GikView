@@ -11,6 +11,6 @@ void update_sensor();
 int read_occupancy();
 
 // JSON 페이로드 생성. caller-owned buffer.
-//   {"occupancy":N,"timestamp":"YYYY-MM-DDThh:mm:ssZ","bssid":"aa:bb:cc:dd:ee:ff","rssi":-67}
+//   {"occupied":true,"timestamp":"YYYY-MM-DDThh:mm:ssZ","bssid":"aa:bb:cc:dd:ee:ff","rssi":-67}
 // out 권장 160B. 반환 = 쓰인 길이.
 size_t build_sensor_payload(char* out, size_t out_size);

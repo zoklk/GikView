@@ -1,0 +1,5 @@
+apiVersion: v2
+name: telegraf
+version: 0.1.0
+appVersion: "1.38-alpine"
+description: Telegraf 1.38 EMQX shared-subscription consumer to InfluxDB 3 writer (Deployment replica=2)

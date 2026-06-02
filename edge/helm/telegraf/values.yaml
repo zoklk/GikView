@@ -1,0 +1,75 @@
+replicaCount: 2
+
+image:
+  repository: telegraf
+  tag: "1.38-alpine"
+  pullPolicy: IfNotPresent
+
+certificate:
+  issuerName: step-cluster-issuer
+  commonName: telegraf
+  duration: 2160h
+  renewBefore: 720h
+
+tls:
+  secretName: telegraf-tls
+  mountPath: /tls
+
+config:
+  configMapName: telegraf-config
+  mountPath: /etc/telegraf
+  shareGroup: telegraf
+  topic: sensors/+/occupancy
+  qos: 1
+  agentInterval: "5s"
+  flushInterval: "5s"
+
+lookup:
+  configMapName: telegraf-lookup
+  mountPath: /lookup
+  sourceKey: lookup.csv
+  targetFile: mapping.csv
+
+emqx:
+  url: ""
+  serverName: ""
+
+influxdb:
+  url: ""
+  bucket: gikview
+
+influxdbTokenSecret:
+  name: influxdb-admin-token
+  key: token
+
+domainSuffix: cluster.local
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "128Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}

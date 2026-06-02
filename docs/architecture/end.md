@@ -1,7 +1,7 @@
 # end
 
 - 작성일: 2026-05-19
-- 상태: 진행 중
+- 상태: 작업 완료
 
 ESP8266 펌웨어의 결정사항. 시스템 차원의 PKI/messaging 설계는 [security.md](security.md), [messaging.md](messaging.md) 참조.
 
