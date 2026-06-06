@@ -17,6 +17,22 @@ permissions:
   contents: read
 
 jobs:
+  detect:
+    name: Detect components
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.check.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f web/frontend/package.json ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+            echo "web/frontend/package.json 없음 — frontend-lint 스킵."
+          fi
+
   gitleaks:
     name: Secret Scan
     runs-on: ubuntu-latest
@@ -81,7 +97,8 @@ jobs:
   frontend-lint:
     name: Frontend Lint & Scan
     # frontend 코드가 web/frontend/ 로 이동되기 전엔 스킵 (현재 web/ 루트에 존재).
-    if: hashFiles('web/frontend/package.json') != ''
+    needs: detect
+    if: needs.detect.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
