@@ -5,19 +5,21 @@ on:
     workflows: ["web-CI"]
     types: [completed]
     branches: [dev, main]
+  workflow_dispatch:        # 수동 트리거 (Actions 탭 Run workflow). 실행한 브랜치로 환경 결정.
 
 env:
   AWS_REGION: ap-northeast-2
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' }}
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -27,24 +29,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
 
       - name: Check for backend changes
         id: changes
         run: |
-          BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
-          if git diff --name-only "$BASE" HEAD | grep -q '^web/backend/'; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch — forcing deploy."
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No web/backend/ changes — skipping deploy."
+            BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+            if git diff --name-only "$BASE" HEAD | grep -q '^web/backend/'; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "No web/backend/ changes — skipping deploy."
+            fi
           fi
 
       - name: Set environment config
         if: steps.changes.outputs.changed == 'true'
         run: |
-          if [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+          BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          if [ "$BRANCH" = "main" ]; then
             echo "ROLE_ARN=arn:aws:iam::585192672325:role/gikview-backend-ci-prod" >> $GITHUB_ENV
             echo "S3_BUCKET=gikview-backend-prod" >> $GITHUB_ENV
             echo "ENV_SUFFIX=prod" >> $GITHUB_ENV
