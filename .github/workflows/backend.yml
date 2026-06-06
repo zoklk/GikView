@@ -80,7 +80,13 @@ jobs:
         working-directory: web/backend
         run: |
           mkdir -p build
-          pip install -r requirements.txt -t ./build --quiet
+          pip install \
+            --platform manylinux2014_aarch64 \
+            --target ./build \
+            --implementation cp \
+            --python-version 3.14 \
+            --only-binary=:all: \
+            -r requirements.txt --quiet
           cp *.py ./build/
           cd build && zip -r ../lambda.zip . && cd ..
 
