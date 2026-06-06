@@ -7,6 +7,10 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from log_util import get_logger
+
+logger = get_logger(__name__)
+
 CONNECTIONS_TABLE = os.environ["CONNECTIONS_TABLE"]
 ROOMS_TABLE = os.environ["ROOMS_TABLE"]
 CONNECTION_TTL_SECONDS = 7200
@@ -45,6 +49,7 @@ def _post(client, connection_id: str, payload: dict) -> None:
         )
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "GoneException":
+            logger.info("stale connection cleaned: %s", connection_id)
             _connections.delete_item(Key={"connection_id": connection_id})
         else:
             raise
@@ -96,5 +101,6 @@ def lambda_handler(event, _context):
     route_key = event["requestContext"]["routeKey"]
     route = _ROUTES.get(route_key)
     if route is None:
+        logger.warning("unknown routeKey: %s", route_key)
         return {"statusCode": 400}
     return route(event)

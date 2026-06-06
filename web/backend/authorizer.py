@@ -5,6 +5,10 @@ import urllib.request
 import jwt
 from jwt import PyJWKClient
 
+from log_util import get_logger
+
+logger = get_logger(__name__)
+
 CLIENT_ID = "814a597e-ee9f-46d1-a28e-89f9b85bb961"
 DISCOVERY_URL = "https://api.account.gistory.me/.well-known/openid-configuration"
 JWKS_CACHE_TTL = 3600
@@ -52,6 +56,7 @@ def lambda_handler(event, _context):
     method_arn = event.get("methodArn", "*")
 
     if not token:
+        logger.warning("auth denied: missing token")
         raise Exception("Unauthorized")
 
     try:
@@ -65,7 +70,9 @@ def lambda_handler(event, _context):
             audience=CLIENT_ID,
             options={"require": ["exp", "iss", "aud", "sub"]},
         )
-    except Exception:
+    except Exception as e:
+        # 실패 사유만 기록(예외 타입+메시지). token 자체는 절대 안 찍음.
+        logger.warning("auth denied: %s: %s", type(e).__name__, e)
         raise Exception("Unauthorized")
 
     return _policy(
