@@ -98,6 +98,4 @@ jobs:
               --function-name gikview-ws-${func}-${{ env.ENV_SUFFIX }} \
               --s3-bucket ${{ env.S3_BUCKET }} \
               --s3-key lambda.zip
-            aws lambda wait function-updated \
-              --function-name gikview-ws-${func}-${{ env.ENV_SUFFIX }}
           done
