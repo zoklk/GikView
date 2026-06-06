@@ -66,8 +66,10 @@ jobs:
           pip install \
             ruff \
             mypy \
-            boto3-stubs[dynamodb,apigatewaymanagementapi] \
-            types-PyJWT
+            boto3-stubs[dynamodb,apigatewaymanagementapi]
+          # 실제 PyJWT(py.typed 내장) 설치. types-PyJWT 스텁은 stale 라
+          # PyJWKClient 누락 → 사용 안 함.
+          pip install -r web/backend/requirements.txt
 
       - name: Ruff lint
         run: ruff check web/backend/
