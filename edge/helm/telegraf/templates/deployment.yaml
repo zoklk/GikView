@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telegraf.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.tls.secretName | quote }}
+    configmap.reloader.stakater.com/reload: {{ printf "%s,%s" .Values.config.configMapName .Values.lookup.configMapName | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "telegraf.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "telegraf.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "telegraf.selectorLabels" . | nindent 18 }}
+              topologyKey: kubernetes.io/hostname
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: telegraf
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: EMQX_URL
+              value: {{ .Values.emqx.url | quote }}
+            - name: EMQX_SERVER_NAME
+              value: {{ .Values.emqx.serverName | quote }}
+            - name: INFLUXDB_URL
+              value: {{ .Values.influxdb.url | quote }}
+            - name: INFLUXDB_BUCKET
+              value: {{ .Values.influxdb.bucket | quote }}
+            - name: DOMAIN_SUFFIX
+              value: {{ .Values.domainSuffix | quote }}
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.influxdbTokenSecret.name }}
+                  key: {{ .Values.influxdbTokenSecret.key }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: telegraf-tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            - name: telegraf-config
+              mountPath: {{ .Values.config.mountPath }}
+              readOnly: true
+            - name: telegraf-lookup
+              mountPath: {{ .Values.lookup.mountPath }}
+              readOnly: true
+      volumes:
+        - name: telegraf-tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        - name: telegraf-config
+          configMap:
+            name: {{ .Values.config.configMapName }}
+        - name: telegraf-lookup
+          configMap:
+            name: {{ .Values.lookup.configMapName }}
+            items:
+              - key: {{ .Values.lookup.sourceKey }}
+                path: {{ .Values.lookup.targetFile }}

@@ -116,6 +116,6 @@ size_t build_sensor_payload(char* out, size_t out_size) {
   int    rssi  = WiFi.RSSI();        // dBm
 
   return snprintf(out, out_size,
-    "{\"occupancy\":%d,\"timestamp\":\"%s\",\"bssid\":\"%s\",\"rssi\":%d}",
-    read_occupancy(), ts, bssid.c_str(), rssi);
+    "{\"occupied\":%s,\"timestamp\":\"%s\",\"bssid\":\"%s\",\"rssi\":%d}",
+    read_occupancy() ? "true" : "false", ts, bssid.c_str(), rssi);
 }

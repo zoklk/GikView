@@ -166,9 +166,11 @@ func renderWhitelist(devices []string) string {
 	return string(out) + "\n"
 }
 
-// renderLookup is the device_id -> room_id table for Telegraf (headerless CSV).
+// renderLookup is the device_id -> room_id table for Telegraf (CSV with header).
+// Header row required by processors.lookup format="csv_key_values" to learn column names.
 func renderLookup(devices []string, pairs map[string]string) string {
 	var b strings.Builder
+	b.WriteString("device_id,room_id\n")
 	for _, d := range devices {
 		fmt.Fprintf(&b, "%s,%s\n", d, pairs[d])
 	}
