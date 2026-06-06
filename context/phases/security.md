@@ -14,7 +14,6 @@
 
 - cert-manager v1.20.2 단일 replica 배포. CRD 동시 설치, uninstall 시 CRD 보존.
 - ACME / Vault / DNS solver 미사용 (외부 issuer 인 step-issuer 만 연동).
-- Argo CD sync-wave: `-3` (가장 먼저). 모든 후속 컴포넌트가 cert-manager CRD 의존.
 - **Port**:
   - `webhook: 10250` — admission webhook (cluster 내부 전용)
 - **리소스**:
@@ -33,7 +32,6 @@
 - StepClusterIssuer 리소스를 본 phase 에서 함께 선언. step-ca 의 `admin` JWK provisioner 와 연결.
 - JWK provisioner 비밀번호는 별도 Secret (`step-issuer-provisioner-password`) 로 사전 생성 (사람 1 회, 환경마다).
 - caBundle 은 step-ca init 단계에서 생성된 root_ca.crt 를 base64 인코딩하여 helm values 로 주입 (환경별 분리).
-- Argo CD sync-wave: `-2`. cert-manager CRD 의존 + step-ca 보다 먼저 (StepClusterIssuer 가 step-ca 보다 먼저 떠야 step-ca 가 첫 인증서 요청 받을 때 즉시 처리 가능).
 - **리소스**:
   - CPU: `10m` / `100m`
   - Memory: `32Mi` / `128Mi`
@@ -57,7 +55,6 @@
   - `admin` (JWK) — step-issuer 연결, K8s 워크로드 발급용.
   - device CN 명명 규약 `^device-[a-f0-9]{6}$`. X5C provisioner 가 발급 가능한 CN 은 `step-ca-whitelist` ConfigMap (mapping-generator wave `-1` 생성) 으로 제한 + device leaf 템플릿은 **DNS 타입 SAN 만** 허용 (비-DNS SAN 요청 거부) — 강제는 cert-template `{{ fail }}` 가드, 부팅 시 `merge-ca-config` initContainer 가 ca.json 에 머지 (결정 14번; rollout 트리거는 결정 15번).
   - 부트스트랩 경로 폐기/회전은 Bootstrap CA 통째 교체로 — CRL/OCSP 미운용 (결정 7번, 결정 13번; 절차 `context/knowledge/step-ca.md`).
-- Argo CD sync-wave: `0`.
 - **디바이스-facing 노출**: step-ca 서버 인증서 SAN (= `ca.json` 의 `dnsNames`, `values-<env>.yaml` 에서 주입) 은 운영 trust 명 (ClusterIP svc DNS) + loopback (`127.0.0.1`) 만. 노드 IP·외부 IP 는 안 넣음 — ESP8266 BearSSL 이 IP SAN 을 검증하지 않아 의미 없음. `127.0.0.1` 은 스모크/디버깅 경로 (`kubectl port-forward → 127.0.0.1:19000`) 의 step CLI TLS 검증을 위해 필요. 운영 trust 전략은 후속 ADR. end-to-end 동작은 ESP8266 펌웨어 클라이언트 (아래 후속 작업) 후 성립 — 본 phase 검증 범위는 K8s 워크로드 발급 경로 (cert-manager + step-issuer → step-ca).
 - **Port**:
   - `https: 9000` — step-ca REST API (`/1.0/sign`, `/1.0/renew`). ClusterIP (step-issuer/cert-manager 내부용) + NodePort `step-ca-nodeport` (고정 `nodePort: 31900`, `externalTrafficPolicy: Local`, `security` 노드). 외부 포트 매핑은 messaging.md 패턴 (공유기 포트포워딩).
@@ -84,7 +81,6 @@
   - EMQX — `secret.reloader.stakater.com/reload: emqx-server-tls` (서버 인증서 갱신), `configmap.reloader.stakater.com/reload: emqx-acl` (ACL 변경).
   - step-ca — `configmap.reloader.stakater.com/reload: step-ca-whitelist` (CN 화이트리스트 변경 시 rollout — step-ca 는 ca.json template/templateData hot-reload 안 됨; 메커니즘은 결정 14번·15번).
   - `telegraf-lookup` → Telegraf, Edge Gateway client cert 등의 Reloader annotation 은 해당 워크로드를 배포하는 후속 phase 에서 추가 (security 결정 8 번은 최종 상태 기준 — 본 phase 는 그 부분집합).
-- Argo CD sync-wave: `-3` (cert-manager 와 병행). 다른 컴포넌트가 reloader annotation 을 달기 전에 떠 있어야 첫 변경 즉시 감지.
 - **리소스**:
   - CPU: `10m` / `100m`
   - Memory: `32Mi` / `128Mi`
@@ -123,7 +119,7 @@
 - **스케줄**: CronJob `*/15 * * * *` (15 분 주기). 디바이스 추가 빈도 낮아 충분.
 - **rollout trigger**: ConfigMap 갱신 → Reloader 가 의존 워크로드 rollout 트리거 (본 phase: EMQX `emqx-acl`, step-ca `step-ca-whitelist`; Telegraf `telegraf-lookup` 은 후속 phase 부터). step-ca StatefulSet 의 Reloader annotation 은 엄브렐라 차트의 post-render strategic-merge patch 로 부착 (메커니즘 근거·기각 대안은 결정 15번). step-ca 는 ca.json `template`/`templateData` hot-reload 가 안 되어 `step-ca-whitelist` 변경 시 rollout 필요, rollout 중 약 5~10초 발급 거부 윈도우. **prod ArgoCD 환경**: ArgoCD `helm` 소스 post-renderer 미실행 → annotation 누락 → whitelist 변경 후 step-ca 재적용은 ArgoCD app refresh 또는 수동 rollout.
 - **권한**: ConfigMap get/list/update/create 가능한 ServiceAccount (init Job 과 CronJob 공용).
-- **Argo CD sync-wave: `-1`** (step-ca·emqx 보다 먼저). 차트가 `device-room-mapping` ConfigMap + CronJob (`*/15 * * * *`) + 일회성 init Job (배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca (wave 0) initContainer / emqx (wave 1) ACL 마운트 시 이미 존재.
+- 차트가 `device-room-mapping` ConfigMap + CronJob (`*/15 * * * *`) + 일회성 init Job (배포 즉시 1 회 실행 — influxdb `post-install-database-job.yaml` 패턴; 이 Job 이 완료돼야 다음 wave 진행) + RBAC 를 함께 선언. init Job 이 세 ConfigMap 초기 생성 → step-ca initContainer / emqx ACL 마운트 시 이미 존재.
 - **이미지 레지스트리 사전 작업** (사람 1 회, 환경마다): GHCR 패키지 private 유지 → `docker login ghcr.io` (push: `write:packages` PAT) + gikview 네임스페이스에 `ghcr-pull` Secret (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io …`, `read:packages` 전용 PAT) 사전 생성. 차트가 ServiceAccount 의 imagePullSecrets 로 참조.
 - **multi-arch buildx 빌드 호스트 사전 작업** (사람 1 회, `/deploy` 머신마다): `docker buildx create --name multiarch --driver docker-container --bootstrap --use` + `docker run --privileged --rm tonistiigi/binfmt --install all`. `docker login ghcr.io` 도 이 시점에 돼 있어야 함 (`buildx --push` 가 빌드 전 인증 필요). 상세: Kubeharness README "사전 준비 > multi-arch 이미지 빌드".
 - **리소스**:
@@ -159,21 +155,9 @@
   - `secret.reloader.stakater.com/reload: "emqx-server-tls"` — 서버 인증서 갱신 시 rollout.
   - `configmap.reloader.stakater.com/reload: "emqx-acl"` — ACL 변경 시 rollout.
 - **client_id 충돌**: 같은 CN 으로 두 클라이언트 접속 시 (결정 7번 "유령 인증서 동시 publish") 본 phase 에서는 default 동작 유지, visibility 단계에서 동일 CN 접속 감지 alert 추가.
-- Argo CD sync-wave: `1` (step-ca 다음; `emqx-acl` 은 mapping-generator wave `-1` 의 init Job 이 이미 생성).
 - **리소스 / Port** 는 messaging phase 와 동일. 본 phase 에서 변경하지 않음.
 
-## Argo CD sync-wave 요약
-
-| wave | 서비스 | 비고 |
-|---|---|---|
-| `-3` | cert-manager | CRD 먼저 (모든 후속 컴포넌트 의존) |
-| `-3` | reloader | cert-manager 와 병행 — 누가 reloader annotation 달기 전에 떠 있어야 |
-| `-2` | step-issuer | cert-manager CRD 의존; StepClusterIssuer 함께 선언 |
-| `-1` | mapping-generator | `device-room-mapping` CM + CronJob + 일회성 init Job (완료돼야 다음 wave) → `emqx-acl`/`step-ca-whitelist`/`telegraf-lookup` 이 step-ca·emqx 보다 먼저 존재. dependency 없음 |
-| `0` | step-ca | initContainer 가 `step-ca-whitelist` (wave `-1` 생성) 를 `ca.json` 에 머지; `ca-whitelist` 볼륨 `optional: true` |
-| `1` | emqx | `emqx-acl` 마운트 (messaging phase 배포본의 mTLS 재전환); step-ca 다음 |
-
-후속 phase 의 Edge Gateway / Telegraf 는 본 phase 완료 후 별도 phase.
+ArgoCD sync-wave 정본은 [edge/argocd/README.md](../../edge/argocd/README.md).
 
 ## 후속 작업 (본 phase 범위 외, 디바이스/펌웨어 작업)
 

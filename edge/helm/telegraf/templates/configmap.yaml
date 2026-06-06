@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.config.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telegraf.labels" . | nindent 4 }}
+data:
+  telegraf.conf: |
+    [agent]
+      interval = "{{ .Values.config.agentInterval }}"
+      flush_interval = "{{ .Values.config.flushInterval }}"
+      omit_hostname = true
+
+    [[inputs.mqtt_consumer]]
+      servers = ["${EMQX_URL}"]
+      topics  = ["$share/{{ .Values.config.shareGroup }}/{{ .Values.config.topic }}"]
+      qos     = {{ .Values.config.qos }}
+      client_id = "telegraf-${POD_NAME}"
+      name_override = "occupancy"
+
+      tls_ca   = "{{ .Values.tls.mountPath }}/ca.crt"
+      tls_cert = "{{ .Values.tls.mountPath }}/tls.crt"
+      tls_key  = "{{ .Values.tls.mountPath }}/tls.key"
+      tls_server_name = "${EMQX_SERVER_NAME}"
+
+      data_format = "json_v2"
+
+      [[inputs.mqtt_consumer.json_v2]]
+        measurement_name = "occupancy"
+        timestamp_path   = "timestamp"
+        timestamp_format = "2006-01-02T15:04:05Z"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "occupied"
+          type = "bool"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "bssid"
+          type = "string"
+
+        [[inputs.mqtt_consumer.json_v2.field]]
+          path = "rssi"
+          type = "int"
+
+    [[processors.regex]]
+      order = 0
+      [[processors.regex.tags]]
+        key         = "topic"
+        pattern     = "^sensors/([^/]+)/occupancy$"
+        replacement = "${1}"
+        result_key  = "device_id"
+
+    [[processors.converter]]
+      order = 1
+      [processors.converter.fields]
+        integer = ["rssi"]
+
+    [[processors.lookup]]
+      order  = 2
+      files  = ["{{ .Values.lookup.mountPath }}/{{ .Values.lookup.targetFile }}"]
+      format = "csv_key_values"
+      key    = '{{`{{.Tag "device_id"}}`}}'
+
+    [[outputs.influxdb_v2]]
+      urls         = ["${INFLUXDB_URL}"]
+      token        = "${INFLUXDB_TOKEN}"
+      organization = ""
+      bucket       = "${INFLUXDB_BUCKET}"

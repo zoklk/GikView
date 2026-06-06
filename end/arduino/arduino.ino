@@ -9,6 +9,7 @@
 #include "fs_store.h"
 #include "stepca.h"
 #include "mqtt_session.h"
+#include "sensor.h"
 
 #include <ESP8266WiFi.h>
 #include <LittleFS.h>
@@ -48,6 +49,9 @@ static Mode decide_mode() {
 void setup() {
   Serial.begin(115200);
   delay(1500);
+
+  setup_sensor();
+
   Serial.printf("\n[init] heap=%d, reset=%s\n",
                 ESP.getFreeHeap(), ESP.getResetReason().c_str());
   Serial.printf("[init] reset info: %s\n", ESP.getResetInfo().c_str());
@@ -133,6 +137,11 @@ void setup() {
 }
 
 void loop() {
+
+  // 메인 루프 돌때마다 currentOccupancy 갱신
+  // 시리얼 모니터에 입력하는 명령어도 센서로 전달
+  update_sensor();
+
   static uint32_t last_pub = 0, last_chk = 0, last_log = 0;
   uint32_t now_ms = millis();
 

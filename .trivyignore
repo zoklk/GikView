@@ -15,3 +15,10 @@ KSV-0049
 KSV-0056
 KSV-0113
 KSV-0114
+
+# telegraf/templates/configmap.yaml — Telegraf TOML config embedded in ConfigMap.
+# token value is env-var placeholder ${INFLUXDB_TOKEN}; real secret injected via
+# Deployment env from influxdb-admin-token Secret. Flagged "key" variants
+# (tls_key path, json_time_key, processor key/result_key) are TOML field names.
+KSV-0109
+KSV-01010
