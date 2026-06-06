@@ -1,0 +1,14 @@
+# gitleaks config — extends built-in ruleset, adds project allowlist.
+# Picked up automatically at repo root by both web-ci.yml and edge.yml.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public OIDC client_id (gistory IdP) — public identifier, not a secret"
+regexes = [
+  '''814a597e-ee9f-46d1-a28e-89f9b85bb961''',
+]
+paths = [
+  '''web/backend/authorizer\.py''',
+]

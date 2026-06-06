@@ -26,7 +26,9 @@ def _load_jwks() -> tuple[PyJWKClient, str]:
     return _jwks_client, _issuer  # type: ignore[return-value]
 
 
-def _policy(principal_id: str, effect: str, resource: str, context: dict | None = None) -> dict:
+def _policy(
+    principal_id: str, effect: str, resource: str, context: dict | None = None
+) -> dict:
     doc = {
         "principalId": principal_id,
         "policyDocument": {

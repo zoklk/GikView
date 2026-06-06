@@ -34,24 +34,24 @@ def _scan_all(table, projection: str | None = None):
 
 def _build_state() -> dict:
     return {
-        item["room_id"]: bool(item.get("occupied", False))
-        for item in _scan_all(_rooms)
+        item["room_id"]: bool(item.get("occupied", False)) for item in _scan_all(_rooms)
     }
 
 
 def lambda_handler(event, _context):
     has_trigger = any(
-        r.get("eventName") in ("INSERT", "MODIFY")
-        for r in event.get("Records", [])
+        r.get("eventName") in ("INSERT", "MODIFY") for r in event.get("Records", [])
     )
     if not has_trigger:
         return {"statusCode": 200}
 
-    payload = json.dumps({
-        "type": "state",
-        "rooms": _build_state(),
-        "timestamp": _now_iso(),
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "type": "state",
+            "rooms": _build_state(),
+            "timestamp": _now_iso(),
+        }
+    ).encode("utf-8")
 
     for item in _scan_all(_connections, projection="connection_id"):
         connection_id = item["connection_id"]

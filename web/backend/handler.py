@@ -67,7 +67,9 @@ def _on_disconnect(event):
 
 
 def _on_ping(event):
-    _post(_mgmt_client(event), event["requestContext"]["connectionId"], {"type": "pong"})
+    _post(
+        _mgmt_client(event), event["requestContext"]["connectionId"], {"type": "pong"}
+    )
     return {"statusCode": 200}
 
 
