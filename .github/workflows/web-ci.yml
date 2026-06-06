@@ -80,6 +80,8 @@ jobs:
 
   frontend-lint:
     name: Frontend Lint & Scan
+    # frontend 코드가 web/frontend/ 로 이동되기 전엔 스킵 (현재 web/ 루트에 존재).
+    if: hashFiles('web/frontend/package.json') != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

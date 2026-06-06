@@ -54,7 +54,6 @@ jobs:
           trivy config \
             --severity CRITICAL,HIGH \
             --exit-code 1 \
-            --no-progress \
             --format table \
             edge/
 
