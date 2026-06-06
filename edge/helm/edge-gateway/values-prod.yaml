@@ -5,7 +5,7 @@ influxdb:
   url: "http://influxdb.gikview.svc.cluster.local:8181"
 
 dynamodb:
-  table: gikview-rooms
+  table: gikview-rooms-prod
 
 iamRolesAnywhere:
   trustAnchorArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:trust-anchor/d2af7275-4f15-40f3-979f-65976d80ccbb"

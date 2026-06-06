@@ -1,0 +1,67 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'web/backend/**'
+
+env:
+  AWS_REGION: ap-northeast-2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set environment config
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "ROLE_ARN=arn:aws:iam::585192672325:role/gikview-backend-ci-prod" >> $GITHUB_ENV
+            echo "S3_BUCKET=gikview-backend-prod" >> $GITHUB_ENV
+            echo "ENV_SUFFIX=prod" >> $GITHUB_ENV
+          else
+            echo "ROLE_ARN=arn:aws:iam::585192672325:role/gikview-backend-ci-dev" >> $GITHUB_ENV
+            echo "S3_BUCKET=gikview-backend-dev" >> $GITHUB_ENV
+            echo "ENV_SUFFIX=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Build Lambda zip
+        working-directory: web/backend
+        run: |
+          mkdir -p build
+          pip install -r requirements.txt -t ./build --upgrade --quiet
+          cp *.py ./build/
+          cd build && zip -r ../lambda.zip . && cd ..
+
+      - name: Upload to S3
+        working-directory: web/backend
+        run: |
+          aws s3 cp lambda.zip s3://${{ env.S3_BUCKET }}/lambda.zip
+
+      - name: Update Lambda functions
+        run: |
+          for func in handler broadcast authorizer; do
+            aws lambda update-function-code \
+              --function-name gikview-ws-${func}-${{ env.ENV_SUFFIX }} \
+              --s3-bucket ${{ env.S3_BUCKET }} \
+              --s3-key lambda.zip
+          done
