@@ -49,7 +49,7 @@ cert-manager:
 
 ### Certificate 리소스 — 제네릭 스켈레톤
 
-워크로드별 실제 `commonName` / `dnsNames` / `ipAddresses` 는 각 service 의 helm chart 안에서 환경별 templating 하며, 그 실제값의 정본은 해당 phase 문서다 (예: EMQX 서버 cert 의 SAN·IP 는 `context/phases/security.md` 의 emqx 서비스). 여기서는 공통 형태만:
+워크로드별 실제 `commonName` / `dnsNames` / `ipAddresses` 는 각 service 의 helm chart 안에서 환경별 templating 하며, 그 실제값의 정본은 해당 phase 문서다 (예: EMQX 서버 cert 의 SAN·IP 는 `context/phases/edge-security.md` 의 emqx 서비스). 여기서는 공통 형태만:
 
 ```yaml
 apiVersion: cert-manager.io/v1
@@ -82,7 +82,7 @@ spec:
 
 - **Secret 갱신 후 Pod 자동 reload 안 됨**: cert-manager 가 Secret 을 갱신해도 TLS handshake 가 이미 끝난 MQTT 클라이언트는 새 인증서를 인식 안 함. Reloader (별도 컴포넌트, 본 phase 에 포함) 가 annotation 기반으로 Pod rollout 트리거.
 
-- **External issuer 순서 의존성**: step-issuer 가 cert-manager CRD 보다 먼저 뜨면 "CRD 없음" 오류로 기동 실패. Argo CD sync-wave 로 cert-manager → step-issuer → step-ca → mapping-generator → emqx 순서를 강제 (실제 wave 번호의 정본은 `context/phases/security.md` 의 "Argo CD sync-wave 요약" 표 — 여기서 번호를 다시 적으면 stale 위험; 워크로드별 Certificate 리소스는 해당 워크로드 sync-wave 와 함께 배포).
+- **External issuer 순서 의존성**: step-issuer 가 cert-manager CRD 보다 먼저 뜨면 "CRD 없음" 오류로 기동 실패. Argo CD sync-wave 로 cert-manager → step-issuer → step-ca → mapping-generator → emqx 순서를 강제 (실제 wave 번호의 정본은 `context/phases/edge-security.md` 의 "Argo CD sync-wave 요약" 표 — 여기서 번호를 다시 적으면 stale 위험; 워크로드별 Certificate 리소스는 해당 워크로드 sync-wave 와 함께 배포).
 
 - **leader election lease 의 namespace = `global.leaderElection.namespace`**: 차트 기본값은 `cert-manager`. cert-manager 를 다른 ns(여기선 `gikview`)에 설치하면 이 값을 그 ns 로 맞춰야 lease 를 만들 수 있음. 안 맞추면 컨트롤러가 리더를 못 잡아 reconcile 정지. 또 동일 ns 에 두 인스턴스면 lease 충돌 — 단일 인스턴스 유지.
 
@@ -98,4 +98,4 @@ spec:
 
 cert-manager controller / webhook / cainjector 는 노드 무관하게 동작하지만(웹훅·watch·step-ca 통신 모두 cross-node OK), `node_category: [security]` 로 두어 PKI 컴포넌트를 한 노드(prod e-s1, dev alpha-w1)에 응집 — `cluster-env-inject` 가 `config/harness.yaml` 의 `node_selectors.security` 를 `values-<env>.yaml` 에 주입. 리소스가 작아(10m/32Mi) 응집 부담은 무시 가능.
 
-이 외 cert-manager 컴포넌트 자체는 환경별 차이 없음. Certificate 리소스의 `dnsNames` / `ipAddresses` 는 환경별로 다르며 (prod IP vs dev IP), 각 service 의 helm chart 안에서 환경별 templating — 실제값의 정본은 해당 phase 문서 (예: `context/phases/security.md` 의 emqx 서비스).
+이 외 cert-manager 컴포넌트 자체는 환경별 차이 없음. Certificate 리소스의 `dnsNames` / `ipAddresses` 는 환경별로 다르며 (prod IP vs dev IP), 각 service 의 helm chart 안에서 환경별 templating — 실제값의 정본은 해당 phase 문서 (예: `context/phases/edge-security.md` 의 emqx 서비스).

@@ -2,7 +2,7 @@
 
 App-of-Apps + 서비스별 Application. `root-app` 이 `apps/` 디렉토리 watch → 각 서비스 Application 자동 생성/동기화.
 
-결정 사유: [docs/architecture/cicd.md](../../docs/architecture/cicd.md). 본 README 는 운영 절차만.
+결정 사유: [docs/architecture/edge/cicd.md](../../docs/architecture/edge/cicd.md). 본 README 는 운영 절차만.
 
 ## 디렉토리
 

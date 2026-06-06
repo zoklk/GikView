@@ -1,0 +1,99 @@
+import json
+import os
+import time
+from datetime import datetime, timezone
+
+import boto3
+from botocore.exceptions import ClientError
+
+CONNECTIONS_TABLE = os.environ["CONNECTIONS_TABLE"]
+ROOMS_TABLE = os.environ["ROOMS_TABLE"]
+CONNECTION_TTL_SECONDS = 7200
+
+_dynamodb = boto3.resource("dynamodb")
+_connections = _dynamodb.Table(CONNECTIONS_TABLE)
+_rooms = _dynamodb.Table(ROOMS_TABLE)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _mgmt_client(event):
+    endpoint = f"https://{event['requestContext']['domainName']}/{event['requestContext']['stage']}"
+    return boto3.client("apigatewaymanagementapi", endpoint_url=endpoint)
+
+
+def _scan_rooms() -> dict:
+    state = {}
+    kwargs = {}
+    while True:
+        resp = _rooms.scan(**kwargs)
+        for item in resp.get("Items", []):
+            state[item["room_id"]] = bool(item.get("occupied", False))
+        if "LastEvaluatedKey" not in resp:
+            return state
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+
+
+def _post(client, connection_id: str, payload: dict) -> None:
+    try:
+        client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps(payload).encode("utf-8"),
+        )
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "GoneException":
+            _connections.delete_item(Key={"connection_id": connection_id})
+        else:
+            raise
+
+
+def _on_connect(event):
+    _connections.put_item(
+        Item={
+            "connection_id": event["requestContext"]["connectionId"],
+            "expires_at": int(time.time()) + CONNECTION_TTL_SECONDS,
+        }
+    )
+    return {"statusCode": 200}
+
+
+def _on_disconnect(event):
+    _connections.delete_item(
+        Key={"connection_id": event["requestContext"]["connectionId"]}
+    )
+    return {"statusCode": 200}
+
+
+def _on_ping(event):
+    _post(
+        _mgmt_client(event), event["requestContext"]["connectionId"], {"type": "pong"}
+    )
+    return {"statusCode": 200}
+
+
+def _on_get_state(event):
+    payload = {
+        "type": "state",
+        "rooms": _scan_rooms(),
+        "timestamp": _now_iso(),
+    }
+    _post(_mgmt_client(event), event["requestContext"]["connectionId"], payload)
+    return {"statusCode": 200}
+
+
+_ROUTES = {
+    "$connect": _on_connect,
+    "$disconnect": _on_disconnect,
+    "ping": _on_ping,
+    "getState": _on_get_state,
+}
+
+
+def lambda_handler(event, _context):
+    route_key = event["requestContext"]["routeKey"]
+    route = _ROUTES.get(route_key)
+    if route is None:
+        return {"statusCode": 400}
+    return route(event)

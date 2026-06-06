@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![cicd architecture](images/cicd-architecture.png)
+![cicd architecture](../images/cicd-architecture.png)
 
 ## 결정 사항
 

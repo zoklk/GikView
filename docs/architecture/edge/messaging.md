@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![messaging architecture](images/messaging-architecture.png)
+![messaging architecture](../images/messaging-architecture.png)
 
 ## 결정 사항
 
