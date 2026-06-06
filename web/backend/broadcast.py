@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 
+from log_util import get_logger
+
+logger = get_logger(__name__)
+
 CONNECTIONS_TABLE = os.environ["CONNECTIONS_TABLE"]
 ROOMS_TABLE = os.environ["ROOMS_TABLE"]
 WS_ENDPOINT = os.environ["WS_ENDPOINT"]
@@ -59,6 +63,7 @@ def lambda_handler(event, _context):
             _mgmt.post_to_connection(ConnectionId=connection_id, Data=payload)
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") == "GoneException":
+                logger.info("stale connection cleaned: %s", connection_id)
                 _connections.delete_item(Key={"connection_id": connection_id})
             else:
                 raise
