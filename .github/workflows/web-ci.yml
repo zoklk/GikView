@@ -10,10 +10,19 @@ on:
     paths:
       - 'web/**'
 
+env:
+  TRIVY_VERSION: '0.71.0'
+
+permissions:
+  contents: read
+
 jobs:
   gitleaks:
     name: Secret Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +35,9 @@ jobs:
   backend-lint:
     name: Backend Lint & Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -50,24 +62,34 @@ jobs:
       - name: mypy
         run: mypy web/backend/ --ignore-missing-imports
 
+      - name: Install Trivy
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            | tar -xz -C /tmp trivy
+          sudo install -m 755 /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+
       - name: Trivy (dependencies)
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: fs
-          scan-ref: web/backend/
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '1'
+        run: |
+          trivy fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            web/backend/
 
   frontend-lint:
     name: Frontend Lint & Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: web/frontend/package-lock.json
 
@@ -79,11 +101,19 @@ jobs:
         working-directory: web/frontend
         run: npm run lint
 
+      - name: Install Trivy
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            | tar -xz -C /tmp trivy
+          sudo install -m 755 /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+
       - name: Trivy (dependencies)
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          scan-type: fs
-          scan-ref: web/frontend/
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: '1'
+        run: |
+          trivy fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            --skip-dirs web/frontend/node_modules \
+            web/frontend/
