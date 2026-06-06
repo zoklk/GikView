@@ -7,4 +7,3 @@ export interface Room {
   isOccupied: boolean;
   description?: string;
 }
-// HistoryLog 인터페이스 삭제 완료
