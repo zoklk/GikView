@@ -60,7 +60,7 @@ def lambda_handler(event, _context):
         claims = jwt.decode(
             token,
             signing_key,
-            algorithms=["RS256"],
+            algorithms=["ES256"],
             issuer=issuer,
             audience=CLIENT_ID,
             options={"require": ["exp", "iss", "aud", "sub"]},
