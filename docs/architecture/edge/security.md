@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![security architecture](images/security-architecture.png)
+![security architecture](../images/security-architecture.png)
 
 ## 결정 사항
 

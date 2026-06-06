@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![storage architecture](images/storage-architecture.png)
+![storage architecture](../images/storage-architecture.png)
 
 ## 결정 사항
 

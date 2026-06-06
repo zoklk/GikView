@@ -7,7 +7,7 @@ ESP8266 펌웨어의 결정사항. 시스템 차원의 PKI/messaging 설계는 [
 
 ## 다이어그램
 
-![end architecture](images/end-architecture.png)
+![firmware architecture](../images/firmware-architecture.png)
 
 ## 결정 사항
 

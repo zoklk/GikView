@@ -5,7 +5,7 @@
 
 ## 다이어그램
 
-![pipeline architecture](images/pipeline-architecture.png)
+![pipeline architecture](../images/pipeline-architecture.png)
 
 ## 결정 사항
 

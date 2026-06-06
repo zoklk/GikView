@@ -161,7 +161,7 @@ ArgoCD sync-wave 정본은 [edge/argocd/README.md](../../edge/argocd/README.md).
 
 ## 후속 작업 (본 phase 범위 외, 디바이스/펌웨어 작업)
 
-- **ESP8266 펌웨어 EST-like 흐름** (인프라 1, 코드 — 본 phase 범위 외, 완료 — `docs/architecture/end.md` 참조)
+- **ESP8266 펌웨어 EST-like 흐름** (인프라 1, 코드 — 본 phase 범위 외, 완료 — `docs/architecture/end/firmware.md` 참조)
   - 표준 BearSSL secure client 가 키 생성/CSR(PKCS#10)/EST 를 안 줘서 BearSSL(mTLS+HTTPS) + uECC(P-256 키생성) + 자체 ASN.1 DER CSR 인코딩 조합 채택. 조합 근거·디바이스 메모리 제약·검증된 트레이드오프는 `context/knowledge/step-ca.md`.
   - 부트스트랩 흐름 — **2단계 발급** (`device-bootstrap.disableRenewal: true` 라 그 ext 로는 mTLS rekey 불가 → 운영 cert 의 provisioner-extension 을 `device-renewal` 로 전환해야 함):
     1. 첫 부팅 시 키페어 생성 → CSR(CN = `device-XXXXXX`, SAN 없음 또는 같은 값의 **DNS SAN 만** — IP SAN 넣으면 step-ca 가 발급 거부)

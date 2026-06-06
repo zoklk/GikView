@@ -30,7 +30,7 @@ end/
 │   ├── mqtt_session.{h,cpp} EMQX mqtts mTLS, publish, 재연결
 │   ├── sensor.{h,cpp}       센서 수집 stub + 페이로드 직렬화
 │   └── data/                LittleFS 자산 (ca-cert.pem, bootstrap-cert.pem, bootstrap-key.pem)
-└── docs/                    end 범위 외 결정사항은 docs/architecture/end.md 참조
+└── docs/                    end 범위 외 결정사항은 docs/architecture/end/firmware.md 참조
 ```
 
 ## 사전 준비
@@ -103,7 +103,7 @@ Arduino IDE 2.3+ 사용. 다음 라이브러리가 설치되어 있어야 한다
 ## 관련 문서
 
 - 시스템 전체: [docs/architecture/README.md](../docs/architecture/README.md)
-- end 결정사항 (ADR): [docs/architecture/end.md](../docs/architecture/end.md)
+- end 결정사항 (ADR): [docs/architecture/end/firmware.md](../docs/architecture/end/firmware.md)
 - step-ca 운영 / X5C provisioner: [context/knowledge/step-ca.md](../context/knowledge/step-ca.md)
-- security phase: [docs/architecture/security.md](../docs/architecture/security.md)
-- messaging phase: [docs/architecture/messaging.md](../docs/architecture/messaging.md)
+- security phase: [docs/architecture/edge/security.md](../docs/architecture/edge/security.md)
+- messaging phase: [docs/architecture/edge/messaging.md](../docs/architecture/edge/messaging.md)
