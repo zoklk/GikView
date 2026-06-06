@@ -2,6 +2,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -26,7 +27,7 @@ def _mgmt_client(event):
 
 def _scan_rooms() -> dict:
     state = {}
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     while True:
         resp = _rooms.scan(**kwargs)
         for item in resp.get("Items", []):
