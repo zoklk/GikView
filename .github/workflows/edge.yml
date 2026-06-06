@@ -3,9 +3,13 @@ on:
   pull_request:
     branches:
       - dev
-      - master
+      - main
     paths:
       - 'edge/**'
+
+env:
+  TRIVY_VERSION: '0.71.0'
+
 jobs:
   edge-lint:
     runs-on: ubuntu-latest
@@ -36,17 +40,23 @@ jobs:
           pip install yamllint -q
           yamllint -d '{extends: default, rules: {document-start: disable, line-length: {max: 300}}, ignore: "edge/helm/*/templates/\n**/*.gotmpl\n**/crds/**"}' edge/
 
+      - name: Install Trivy
+        run: |
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            | tar -xz -C /tmp trivy
+          sudo install -m 755 /tmp/trivy /usr/local/bin/trivy
+          trivy --version
+
       - name: Trivy
-        uses: aquasecurity/trivy-action@v0.35.0
         id: s3
         continue-on-error: true
-        with:
-          scan-type: 'config'
-          scan-ref: 'edge/'
-          format: 'table'
-          exit-code: '1'
-          severity: 'CRITICAL,HIGH'
-          hide-progress: true
+        run: |
+          trivy config \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --no-progress \
+            --format table \
+            edge/
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2.3.4
@@ -55,6 +65,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: 'v3.21.0'
 
       - name: Set up Kubeconform
         uses: bmuschko/setup-kubeconform@v1
