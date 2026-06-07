@@ -66,6 +66,19 @@ constexpr const char* DEVICE_CN_OVERRIDE = nullptr;
 // ── MQTT ───────────────────────────────────────────────────────────────
 constexpr const char* MQTT_TOPIC_FMT = "sensors/%s/occupancy";
 
+// ── 센서 (C4001 mmWave, sensor.cpp) ────────────────────────────────────
+// provision_sensor() 가 BOOTSTRAP 성공 직후 1회 적용 → 센서 자체 flash 에 영구저장.
+// 평소 부팅엔 재적용 안 함. 값 변경 후 재적용하려면 device cert 지우고 재부팅(=재
+// 부트스트랩) 또는 재플래시. 문자열로 둬서 명령 조립(setX A B)에 바로 붙음.
+//   민감도 0~9 (낮을수록 둔감). latency on/off 초. 거리 m (max ≤ 20.0, min ≥ 0.3).
+#define SENSOR_KEEP_SENS    "2"      // 유지 민감도 (있음 유지)
+#define SENSOR_TRIG_SENS    "3"      // 트리거 민감도 (없음→있음)
+#define SENSOR_LATENCY_ON   "0.1"    // 감지 응답 지연 (초)
+#define SENSOR_LATENCY_OFF  "1.0"    // 사라진 뒤 유지 (초) — 작을수록 빨리 0
+#define SENSOR_RANGE_MIN    "0.3"    // 최소 감지거리 (m) — 근거리 데드존
+#define SENSOR_RANGE_MAX    "15.0"   // 최대 감지거리 (m) — 방 깊이
+#define SENSOR_TRIG_RANGE   "15.0"   // 트리거 거리 (m) — 보통 max 와 동일
+
 // ── LittleFS 경로 ──────────────────────────────────────────────────────
 // 굽기 단계에 들어가는 자산: ca-cert.pem, bootstrap-cert.pem, bootstrap-key.pem.
 // 정식 발급 후 device-* 가 생성되고 bootstrap-* 는 삭제됨.

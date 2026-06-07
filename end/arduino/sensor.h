@@ -1,13 +1,17 @@
-// sensor — 센서 데이터 수집 + MQTT 페이로드 직렬화.
-// 현재는 stub (occupancy=1 고정). 실제 센서 인터페이스 추가 시 read_occupancy() 만 변경.
+// sensor — C4001 mmWave 점유 감지 + MQTT 페이로드 직렬화.
+// SoftwareSerial 9600 으로 $DFHPD 프레임을 파싱해 occupancy(0/1) 갱신.
 #pragma once
 #include <Arduino.h>
 
 void setup_sensor();
 
+// config.h 의 SENSOR_* 값으로 C4001 파라미터 일괄 설정 (stop→set→saveConfig→start).
+// BOOTSTRAP 성공 직후 1회 호출. saveConfig 로 센서 flash 영구저장 → 평소 부팅 시 불필요.
+void provision_sensor();
+
 void update_sensor();
 
-// 0/1. stub.
+// 마지막으로 파싱된 점유 상태 (0=없음, 1=있음).
 int read_occupancy();
 
 // JSON 페이로드 생성. caller-owned buffer.
