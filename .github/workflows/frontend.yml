@@ -49,10 +49,14 @@ jobs:
             echo "S3_BUCKET=gikview-frontend-prod" >> $GITHUB_ENV
             echo "CLOUDFRONT_ID=ELY9DHUYAKNHJ" >> $GITHUB_ENV
             echo "VITE_WS_URL=wss://7t5yk4e8vf.execute-api.ap-northeast-2.amazonaws.com/prod/" >> $GITHUB_ENV
+            echo "VITE_CLIENT_ID=814a597e-ee9f-46d1-a28e-89f9b85bb961" >> $GITHUB_ENV
+            echo "VITE_REDIRECT_URI=https://gikview.org/" >> $GITHUB_ENV
           else
             echo "ROLE_ARN=arn:aws:iam::585192672325:role/gikview-frontend-ci-dev" >> $GITHUB_ENV
             echo "S3_BUCKET=gikview-frontend-dev" >> $GITHUB_ENV
             echo "VITE_WS_URL=wss://7t5yk4e8vf.execute-api.ap-northeast-2.amazonaws.com/dev/" >> $GITHUB_ENV
+            echo "VITE_CLIENT_ID=814a597e-ee9f-46d1-a28e-89f9b85bb961" >> $GITHUB_ENV
+            echo "VITE_REDIRECT_URI=https://dev.gikview.org/" >> $GITHUB_ENV
           fi
 
       - name: Configure AWS credentials
@@ -80,6 +84,8 @@ jobs:
         working-directory: web/frontend
         env:
           VITE_WS_URL: ${{ env.VITE_WS_URL }}
+          VITE_CLIENT_ID: ${{ env.VITE_CLIENT_ID }}
+          VITE_REDIRECT_URI: ${{ env.VITE_REDIRECT_URI }}
         run: npm run build
 
       - name: Deploy to S3
