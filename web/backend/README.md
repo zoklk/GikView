@@ -15,22 +15,22 @@ gikview 웹 실시간 상태전달 백엔드. AWS API Gateway WebSocket + Lambda
 ```
 web/backend/
 ├── README.md
-├── authorizer.py      # $connect Lambda authorizer (JWT 검증)
+├── authorizer.py      # $connect Lambda authorizer (userinfo 검증)
 ├── handler.py         # WebSocket route 통합 핸들러
 ├── broadcast.py       # DynamoDB Streams 기반 전체 push
 ├── log_util.py        # 공유 로거
-└── requirements.txt   # PyJWT[crypto]
+└── requirements.txt   # 외부 의존성 없음
 ```
 
 3종 단일 zip 패키징, 핸들러 attribute(`{authorizer,handler,broadcast}.lambda_handler`)로 분기
 
 ## authorizer.py
 
-`$connect` Lambda Authorizer. 쿼리스트링 `token` JWT 검증 → Allow/Deny IAM 정책 반환
+`$connect` Lambda Authorizer. 쿼리스트링 `token`(PKCE **access_token**) 검증 → Allow/Deny IAM 정책 반환
 
-- gistory OIDC discovery(`api.account.gistory.me`) → JWKS → **ES256** 서명 검증. `iss`/`aud`(client_id)/`exp`/`sub` 필수
-- JWKS 전역 **1h 캐시**(`JWKS_CACHE_TTL`). cold start 1회만 discovery
-- 성공 → `sub`/`email`을 `context`로 전달 → handler가 `event.requestContext.authorizer` 접근
+- access_token 은 opaque reference token → 오프라인 JWKS 서명검증 불가. gistory IdP userinfo(`GET api.account.gistory.me/oauth/userinfo`, `Authorization: Bearer {token}`) 호출로 검증
+- HTTP 200 → 유효, 401·그 외 → `Unauthorized`. WS 연결은 long-lived(최대 2h)라 연결 빈도 낮아 캐싱 불필요
+- 성공 → userinfo body 의 `sub`/`email`을 `context`로 전달 → handler가 `event.requestContext.authorizer` 접근
 - identity source = `route.request.querystring.token` (API GW 설정값)
 
 ## handler.py
@@ -58,8 +58,8 @@ rooms Streams(`INSERT`/`MODIFY`) 트리거. 변경 시 rooms 전체 맵 → 전 
 
 ## requirements.txt
 
-- `PyJWT[crypto]==2.13.0`만 포함. `[crypto]` → `cryptography`(네이티브 rust)
-- CI는 Lambda 타겟 아키(arm64) manylinux 휠로 빌드 필수
+- 외부 런타임 의존성 없음. authorizer 는 urllib(stdlib)로 userinfo 호출, handler/broadcast 의 boto3 는 Lambda 런타임 내장
+- 네이티브 휠 없음 → CI 빌드 단순
 
 ## 배포
 
