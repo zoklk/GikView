@@ -106,6 +106,9 @@ void setup() {
     case MODE_BOOTSTRAP:
       Serial.println("[mode] BOOTSTRAP");
       if (provision_cert(false)) {
+        // 인증서 발급 성공 후 센서 파라미터 1회 설정 (config.h SENSOR_*).
+        // 재시도 루프(발급 실패 시)에선 안 돌아 센서 flash 마모 없음.
+        provision_sensor();
         Serial.println("[boot] complete, rebooting...");
         delay(2000);
         ESP.restart();
