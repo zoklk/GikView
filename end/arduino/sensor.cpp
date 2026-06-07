@@ -51,6 +51,11 @@ void provision_sensor() {
   Serial.println("[sensor] provision 완료");
 }
 
+void sensor_release() {
+  sensorSerial.end();
+  Serial.printf("[sensor] released, heap=%d\n", ESP.getFreeHeap());
+}
+
 // C-style 문자열 파싱 함수 (메모리 할당 없음)
 static void parseSensorString(const char* data) {
   // 1. 첫 번째 콤마 찾기
