@@ -1,117 +1,167 @@
 // web/src/App.tsx
 import { useState, useEffect, useRef } from 'react';
+import type { User } from 'oidc-client-ts';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
 import { IsometricBuilding } from './components/IsometricBuilding';
 import { LoginPage } from './components/LoginPage';
 import { WS_BASE_URL } from './services/api';
-import { mockRooms } from './mock/roomMock'; // 🛠️ 베이스 데이터로 사용하기 위해 추가 임포트
+import { authService } from './services/auth';
+import { mockRooms } from './mock/roomMock'; // 방 메타데이터(이름/층/동) 베이스
 import type { Room } from './types/room';
+import type { WsMessage } from './types/ws';
+
+const pad = (n: number) => n.toString().padStart(2, '0');
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  // 초기 상태는 mockRooms를 베이스로 사용합니다.
   const [rooms, setRooms] = useState<Room[]>(mockRooms);
   const [lastUpdated, setLastUpdated] = useState<string>('');
-  
-  // 타이머 메모리 누수 방지를 위한 Ref
-  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // StrictMode 이중 마운트 시 callback 중복 교환 방지
+  const bootstrappedRef = useRef(false);
+
+  // ── 인증 부트스트랩 ──
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
+
+    (async () => {
+      try {
+        if (new URLSearchParams(window.location.search).has('code')) {
+          // redirect_uri(앱 루트) 복귀: code 교환 후 URL 정리
+          const u = await authService.handleCallback();
+          window.history.replaceState({}, '', '/');
+          setUser(u);
+        } else {
+          // 새로고침: 인메모리 토큰 확인 (없으면 로그인 화면)
+          const u = await authService.getUser();
+          if (u && !u.expired) setUser(u);
+        }
+      } catch (e) {
+        console.error('❌ 인증 부트스트랩 실패:', e);
+      } finally {
+        setAuthReady(true);
+      }
+    })();
+  }, []);
+
+  // ── WebSocket 연결 ──
+  useEffect(() => {
+    if (!user?.access_token) return;
 
     let socket: WebSocket | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    let closedByCleanup = false;
 
-    const connectWebSocket = () => {
-      socket = new WebSocket(WS_BASE_URL);
+    const startHeartbeat = (ws: WebSocket) => {
+      // API GW idle timeout 10분 → 8분 주기 ping
+      pingTimer = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'ping' }));
+        }
+      }, 8 * 60 * 1000);
+    };
+
+    const stopHeartbeat = () => {
+      if (pingTimer) clearInterval(pingTimer);
+      pingTimer = null;
+    };
+
+    const handleMessage = (data: WsMessage) => {
+      if (data.type === 'pong') return;
+      if (data.type === 'state') {
+        // 매 수신마다 rooms 전체 교체. mockRooms 메타데이터에 백엔드 occupancy 주입.
+        // 프론트 id(room-a-1-lounge) → 백엔드 key(room_a_1_lounge) 변환.
+        const next = mockRooms.map((room) => ({
+          ...room,
+          isOccupied: data.rooms[room.id.replace(/-/g, '_')] ?? false,
+        }));
+        setRooms(next);
+
+        if (data.timestamp) {
+          const d = new Date(data.timestamp);
+          setLastUpdated(`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`);
+        }
+      }
+    };
+
+    const scheduleReconnect = () => {
+      const delay = Math.min(1000 * 2 ** attempts, 30000); // 최대 30초
+      attempts++;
+      reconnectTimer = setTimeout(async () => {
+        // 재연결 전 토큰 최신화 (만료 시 silent renew)
+        let fresh = await authService.getUser();
+        if (!fresh || fresh.expired) {
+          try {
+            fresh = await authService.signinSilent();
+          } catch (e) {
+            console.error('❌ silent renew 실패:', e);
+          }
+        }
+        if (fresh?.access_token) connect(fresh.access_token);
+      }, delay);
+    };
+
+    const connect = (token: string) => {
+      socket = new WebSocket(`${WS_BASE_URL}?token=${token}`);
 
       socket.onopen = () => {
-        console.log('✅ WebSocket 연결 수립 완료');
-        
-        // 1. 초기 상태 요청 (getState)
-        socket?.send(JSON.stringify({ action: 'getState' }));
-
-        // 2. Heartbeat (Ping) 설정: API GW Timeout(10분) 대비 8분(480초) 주기로 전송
-        const EIGHT_MINUTES = 8 * 60 * 1000;
-        pingIntervalRef.current = setInterval(() => {
-          if (socket?.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ action: 'ping' }));
-          }
-        }, EIGHT_MINUTES);
+        console.log('✅ WebSocket 연결 수립');
+        attempts = 0; // 연결 성공 시 backoff 리셋
+        startHeartbeat(socket!);
+        socket!.send(JSON.stringify({ action: 'getState' })); // 초기 상태 요청
       };
 
       socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-
-          // 서버 응답 분기 처리
-          if (data.type === 'pong') {
-            // Ping에 대한 정상 응답 (로그 외 특별한 처리 불필요)
-            return;
-          }
-
-          if (data.type === 'state' && data.rooms) {
-            // 🚨 백엔드 객체 데이터 -> 프론트엔드 배열 데이터 병합 로직
-            const updatedRooms = mockRooms.map((room) => {
-              // 프론트엔드 ID(room-a-1)를 백엔드 Key(room_a_1) 포맷으로 임시 변환하여 매칭
-              const backendKey = room.id.replace(/-/g, '_');
-              
-              return {
-                ...room,
-                // 백엔드 데이터에 해당 키가 존재하면 상태 반영, 없으면 기존 상태 유지
-                isOccupied: data.rooms[backendKey] ?? room.isOccupied
-              };
-            });
-
-            setRooms(updatedRooms);
-
-            // 서버 제공 Timestamp 활용
-            if (data.timestamp) {
-              const date = new Date(data.timestamp);
-              setLastUpdated(
-                `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`
-              );
-            }
-          }
+          handleMessage(JSON.parse(event.data) as WsMessage);
         } catch (error) {
           console.error('❌ WebSocket 메시지 파싱 오류:', error);
         }
       };
 
-      socket.onerror = (error) => {
-        console.error('❌ WebSocket 통신 오류:', error);
-      };
+      socket.onerror = (error) => console.error('❌ WebSocket 통신 오류:', error);
 
       socket.onclose = () => {
-        console.log('🔌 WebSocket 연결 종료. 5초 후 재연결 시도...');
-        // Ping 인터벌 해제
-        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-        
-        setTimeout(() => {
-          if (isAuthenticated) connectWebSocket();
-        }, 5000);
+        stopHeartbeat();
+        if (!closedByCleanup) {
+          console.log('🔌 WebSocket 종료. 재연결 예약...');
+          scheduleReconnect();
+        }
       };
     };
 
-    connectWebSocket();
+    connect(user.access_token);
 
     return () => {
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      if (socket) {
-        socket.close();
-      }
+      closedByCleanup = true;
+      stopHeartbeat();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socket?.close();
     };
-  }, [isAuthenticated]);
+  }, [user]);
 
-  if (!isAuthenticated) {
-    return <LoginPage onLogin={() => setIsAuthenticated(true)} />;
+  if (!authReady) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-[#F7F9FB] text-[#1E293B] font-sans">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={() => authService.login()} />;
   }
 
   return (
     <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#0F172A]' : 'bg-[#F7F9FB]'}`}>
       <header className="flex justify-between items-center p-4 md:p-6 bg-[#FFFFFF] dark:bg-[#1E293B] border-b-4 border-[#1F7A8C] z-20 shrink-0 shadow-sm transition-colors duration-300">
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 shadow-sm border border-gray-200 dark:border-gray-600 active:scale-95 transition-transform"
           >

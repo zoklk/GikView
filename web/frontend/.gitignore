@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# env (로컬 전용. 배포 값은 CI 가 주입)
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
