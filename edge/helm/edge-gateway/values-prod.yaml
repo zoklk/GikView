@@ -5,7 +5,11 @@ influxdb:
   url: "http://influxdb.gikview.svc.cluster.local:8181"
 
 dynamodb:
-  table: gikview-rooms-prod
+  # Prod writes prod-only by default. Add gikview-rooms to also mirror into
+  # the dev table when load allows.
+  tables:
+    - gikview-rooms-prod
+    - gikview-rooms-dev
 
 iamRolesAnywhere:
   trustAnchorArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:trust-anchor/d2af7275-4f15-40f3-979f-65976d80ccbb"
