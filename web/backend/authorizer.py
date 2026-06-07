@@ -1,33 +1,15 @@
 import json
-import time
+import urllib.error
 import urllib.request
-
-import jwt
-from jwt import PyJWKClient
 
 from log_util import get_logger
 
 logger = get_logger(__name__)
 
-CLIENT_ID = "814a597e-ee9f-46d1-a28e-89f9b85bb961"
-DISCOVERY_URL = "https://api.account.gistory.me/.well-known/openid-configuration"
-JWKS_CACHE_TTL = 3600
-
-_jwks_client: PyJWKClient | None = None
-_issuer: str | None = None
-_jwks_loaded_at: float = 0.0
-
-
-def _load_jwks() -> tuple[PyJWKClient, str]:
-    global _jwks_client, _issuer, _jwks_loaded_at
-    now = time.time()
-    if _jwks_client is None or now - _jwks_loaded_at > JWKS_CACHE_TTL:
-        with urllib.request.urlopen(DISCOVERY_URL, timeout=5) as resp:
-            meta = json.load(resp)
-        _jwks_client = PyJWKClient(meta["jwks_uri"])
-        _issuer = meta["issuer"]
-        _jwks_loaded_at = now
-    return _jwks_client, _issuer  # type: ignore[return-value]
+# GIST IdP access_token 은 opaque reference token 이라 오프라인 JWKS 서명검증이
+# 불가하다. 매 $connect 마다 userinfo 1회 호출로 검증한다 (WS 연결은 long-lived,
+# 연결 빈도 낮아 캐싱 불필요).
+USERINFO_URL = "https://api.account.gistory.me/oauth/userinfo"
 
 
 def _policy(
@@ -51,6 +33,14 @@ def _policy(
     return doc
 
 
+def _userinfo(token: str) -> dict:
+    req = urllib.request.Request(
+        USERINFO_URL, headers={"Authorization": f"Bearer {token}"}
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.load(resp)
+
+
 def lambda_handler(event, _context):
     token = (event.get("queryStringParameters") or {}).get("token")
     method_arn = event.get("methodArn", "*")
@@ -60,18 +50,12 @@ def lambda_handler(event, _context):
         raise Exception("Unauthorized")
 
     try:
-        jwks_client, issuer = _load_jwks()
-        signing_key = jwks_client.get_signing_key_from_jwt(token).key
-        claims = jwt.decode(
-            token,
-            signing_key,
-            algorithms=["ES256"],
-            issuer=issuer,
-            audience=CLIENT_ID,
-            options={"require": ["exp", "iss", "aud", "sub"]},
-        )
+        claims = _userinfo(token)
+    except urllib.error.HTTPError as e:
+        # 401 등 비-200 → 무효 토큰. 사유만 기록, token 자체는 절대 안 찍음.
+        logger.warning("auth denied: HTTP %s", e.code)
+        raise Exception("Unauthorized")
     except Exception as e:
-        # 실패 사유만 기록(예외 타입+메시지). token 자체는 절대 안 찍음.
         logger.warning("auth denied: %s: %s", type(e).__name__, e)
         raise Exception("Unauthorized")
 
