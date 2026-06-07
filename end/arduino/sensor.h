@@ -6,8 +6,13 @@
 void setup_sensor();
 
 // config.h 의 SENSOR_* 값으로 C4001 파라미터 일괄 설정 (stop→set→saveConfig→start).
-// BOOTSTRAP 성공 직후 1회 호출. saveConfig 로 센서 flash 영구저장 → 평소 부팅 시 불필요.
+// BOOTSTRAP 시 cert 발급 전 1회 호출. saveConfig 로 센서 flash 영구저장.
 void provision_sensor();
+
+// SoftwareSerial 종료 — RX 버퍼 heap 반납 + $DFHPD ISR 중단.
+// BOOTSTRAP 에서 provision 후 cert TLS 전에 호출 (heap 확보 + fragmentation 회피).
+// 부트스트랩은 직후 reboot 하므로 안전. 재부팅 후 setup_sensor 가 다시 begin.
+void sensor_release();
 
 void update_sensor();
 
