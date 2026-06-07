@@ -1,14 +1,28 @@
 # backend
 
 - 작성일: 2026-06-06
-- 상태: 작업 중
+- 상태: 작업 완료
 
 웹서비스 실시간 상태 전달 백엔드. AWS API Gateway WebSocket + Lambda + DynamoDB.
 프론트엔드는 별도 문서. edge → DynamoDB 적재까지는 [edge/pipeline.md](../edge/pipeline.md).
 
 ## 다이어그램
 
-<!-- TODO: images/web-backend-architecture.png 추가 -->
+![backend architecture](../images/backend-architecture.png)
+
+## 성능 (실측)
+
+콜드스타트 측정 (128MB, python3.14, 2026-06-06):
+
+| Lambda | 콜드 (Init+Duration) | warm | 비고 |
+|---|---|---|---|
+| authorizer | ~0.8s | <100ms | Init ~210ms(`cryptography`/jwt import) <br> + 콜드 시 IdP discovery·JWKS fetch ~600ms. (JWKS 1h 캐시라 warm 은 네트워크 생략) |
+| handler | ~1.0s | <100ms | Init ~520ms(boto3 dynamodb resource·Table 객체 생성) |
+| broadcast | ~0.4s | ~280ms | boto3 런타임 기본 |
+
+- 콜드 총 지연 = `Init Duration + Duration`(= Billed Duration). `$connect` 첫 연결 1회만 발생.
+- 이후 warm + WebSocket 유지(server-push)라 클라이언트 체감 지연 없음.
+- zip 패키징(결정 2)으로 컨테이너 이미지 pull 단계 없음 → 가벼운 의존성이 콜드 ~1s 이내에 기여.
 
 ## 구성
 

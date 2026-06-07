@@ -10,7 +10,7 @@
 ## web
 | 페이즈 | 범위 | 상태 | 문서 |
 |---|---|---|---|
-| backend | API Gateway WebSocket, Lambda, DynamoDB, OIDC authorizer | 진행 중 | [backend.md](web/backend.md) |
+| backend | API Gateway WebSocket, Lambda, DynamoDB, OIDC authorizer | 작업 완료 | [backend.md](web/backend.md) |
 | frontend | - | - | - |
 
 ## edge
