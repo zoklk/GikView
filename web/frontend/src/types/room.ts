@@ -1,5 +1,4 @@
 // src/types/room.ts
-
 export interface Room {
   id: string;
   name: string;
@@ -7,10 +6,4 @@ export interface Room {
   floor: number;
   isOccupied: boolean;
   description?: string;
-}
-
-export interface HistoryLog {
-  timestamp: string;
-  roomId: string;
-  status: 'occupied' | 'cleared';
 }
