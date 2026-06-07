@@ -17,22 +17,20 @@
 **artifacts**: lambda
 **references**: [context/knowledge/aws-resources.md]
 
-API Gateway WebSocket `$connect` 의 Lambda Authorizer. JWT 검증 후 IAM 정책을 반환해 연결 수립 여부를 결정한다.
+API Gateway WebSocket `$connect` 의 Lambda Authorizer. access_token 유효성을 GIST IdP userinfo 로 확인하고 IAM 정책을 반환해 연결 수립 여부를 결정한다.
 
 - 트리거: API GW `$connect` route (Lambda Authorizer 타입)
-- 입력: `event.queryStringParameters.token` (PKCE 로 발급된 access_token)
+- 입력: `event.queryStringParameters.token` (PKCE access_token, opaque reference token)
 - 검증 절차:
   - token 누락 → `raise Exception("Unauthorized")` (API GW 401 응답)
-  - GIST IdP discovery 로 JWKS 조회
-    (`https://api.account.gistory.me/.well-known/openid-configuration` → `jwks_uri`)
-  - JWT 검증 항목: 서명, `exp`, `iss`, `aud`
-  - 실패 → `raise Exception("Unauthorized")`
+  - GIST IdP userinfo 호출: `GET https://api.account.gistory.me/oauth/userinfo`, 헤더 `Authorization: Bearer {token}`
+  - HTTP 200 → 유효. 401 또는 그 외 응답 → `raise Exception("Unauthorized")`
 - 출력 (Allow):
-  - `principalId`: `{sub}`
+  - `principalId`: userinfo 응답의 `sub`
   - `policyDocument.Statement[0]`: `Effect=Allow`, `Action=execute-api:Invoke`, `Resource={methodArn}`
-  - `context`: `{ userId: {sub}, email: {email} }` — handler 가 `event.requestContext.authorizer` 로 접근
-- **JWKS 캐싱**: Lambda 실행 컨텍스트 전역 변수에 보관. cold start 1회만 IdP 조회. 키 로테이션 대비 만료 시간 (예: 1h) 적용.
-- 환경변수: 없음 (JWKS URL 은 discovery 로 동적 조회)
+  - `context`: `{ userId: sub, email }` (userinfo 응답 body 에서 추출, handler 가 `event.requestContext.authorizer` 로 접근)
+- access_token 이 opaque reference token 이라 오프라인 JWKS 서명검증 불가. 매 `$connect` 마다 userinfo 1회 호출로 검증한다. WS 연결은 long-lived (최대 2시간) 라 연결 빈도 낮아 캐싱 불필요.
+- 환경변수: 없음 (userinfo URL 은 상수, 또는 discovery 의 `userinfo_endpoint`)
 - IAM 권한: CloudWatch Logs 만
 
 ## Service: gikview-ws-handler
