@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -40,7 +41,7 @@ type Config struct {
 	InfluxDBURL    string
 	InfluxDBBucket string
 	InfluxDBToken  string
-	DynamoTable    string
+	DynamoTables   []string
 	AWSRegion      string
 	TrustAnchorARN string
 	ProfileARN     string
@@ -68,6 +69,23 @@ func envOr(k, def string) string {
 	return def
 }
 
+// mustEnvList parses a comma-separated env var into a trimmed, non-empty list.
+// Fan-out targets (e.g. dev + prod DynamoDB tables) are configured this way;
+// drop a table from the list to stop writing to it.
+func mustEnvList(k string) []string {
+	v := mustEnv(k)
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		log.Fatalf("FATAL: env %s required (non-empty)", k)
+	}
+	return out
+}
+
 func loadConfig() *Config {
 	return &Config{
 		EMQXBrokerURL:  mustEnv("EMQX_BROKER_URL"),
@@ -75,7 +93,7 @@ func loadConfig() *Config {
 		InfluxDBURL:    mustEnv("INFLUXDB_URL"),
 		InfluxDBBucket: envOr("INFLUXDB_BUCKET", "gikview"),
 		InfluxDBToken:  mustEnv("INFLUXDB_TOKEN"),
-		DynamoTable:    mustEnv("DYNAMODB_TABLE"),
+		DynamoTables:   mustEnvList("DYNAMODB_TABLES"),
 		AWSRegion:      mustEnv("AWS_DEFAULT_REGION"),
 		TrustAnchorARN: mustEnv("TRUST_ANCHOR_ARN"),
 		ProfileARN:     mustEnv("PROFILE_ARN"),
@@ -175,19 +193,29 @@ func snippet(b []byte) string {
 
 type dynamoWriter struct {
 	client *dynamodb.Client
-	table  string
+	tables []string
 }
 
+// put fans the room state out to every configured table. All tables share one
+// region/client, so a single PutItem loop suffices. A failure on one table does
+// not skip the rest; errors are joined. PutItem is idempotent, so a retry after
+// partial failure safely re-writes the table(s) that already succeeded.
 func (d *dynamoWriter) put(ctx context.Context, room string, s roomState) error {
-	_, err := d.client.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(d.table),
-		Item: map[string]ddtypes.AttributeValue{
-			"room_id":   &ddtypes.AttributeValueMemberS{Value: room},
-			"occupied":  &ddtypes.AttributeValueMemberBOOL{Value: s.Occupied},
-			"timestamp": &ddtypes.AttributeValueMemberS{Value: s.Timestamp},
-		},
-	})
-	return err
+	item := map[string]ddtypes.AttributeValue{
+		"room_id":   &ddtypes.AttributeValueMemberS{Value: room},
+		"occupied":  &ddtypes.AttributeValueMemberBOOL{Value: s.Occupied},
+		"timestamp": &ddtypes.AttributeValueMemberS{Value: s.Timestamp},
+	}
+	var errs []error
+	for _, table := range d.tables {
+		if _, err := d.client.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(table),
+			Item:      item,
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("table %s: %w", table, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func loadMapping(path string) (map[string]string, error) {
@@ -349,7 +377,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: aws config: %v", err)
 	}
-	ddb := &dynamoWriter{client: dynamodb.NewFromConfig(awsCfg), table: cfg.DynamoTable}
+	ddb := &dynamoWriter{client: dynamodb.NewFromConfig(awsCfg), tables: cfg.DynamoTables}
 
 	influx := &influxClient{
 		base:   strings.TrimRight(cfg.InfluxDBURL, "/"),

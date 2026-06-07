@@ -70,8 +70,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.influxdbTokenSecret.name }}
                   key: {{ .Values.influxdbTokenSecret.key }}
-            - name: DYNAMODB_TABLE
-              value: {{ .Values.dynamodb.table | quote }}
+            - name: DYNAMODB_TABLES
+              value: {{ join "," .Values.dynamodb.tables | quote }}
             - name: TRUST_ANCHOR_ARN
               value: {{ .Values.iamRolesAnywhere.trustAnchorArn | quote }}
             - name: PROFILE_ARN

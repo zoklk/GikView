@@ -30,8 +30,8 @@ influxdb:
   url: ""
   bucket: gikview
 
-dynamodb:
-  table: gikview-rooms
+# dynamodb.tables is env-specific (fan-out targets) — defined only in
+# values-<env>.yaml, not here. Lists replace (not merge) across value files.
 
 iamRolesAnywhere:
   trustAnchorArn: ""
