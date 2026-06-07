@@ -1,20 +1,32 @@
-// web/src/App.tsx
+// web/frontend/src/App.tsx
 import { useState, useEffect, useRef } from 'react';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
 import { IsometricBuilding } from './components/IsometricBuilding';
 import { LoginPage } from './components/LoginPage';
 import { WS_BASE_URL } from './services/api';
-import { mockRooms } from './mock/roomMock'; // 🛠️ 베이스 데이터로 사용하기 위해 추가 임포트
 import type { Room } from './types/room';
+
+// 🚨 선배님 피드백 반영: 외부 Mock 파일 의존성을 완전히 제거하고 내부에 뼈대 데이터를 직접 선언.
+// 올려주신 A동/B동 오리지널 데이터를 기반으로 구성했으며, 초기 상태는 모두 false입니다.
+const INITIAL_ROOMS: Room[] = [
+  { id: 'room-a-1-community', name: '커뮤니티실', building: 'A', floor: 1, isOccupied: null },
+  { id: 'room-a-1-lounge', name: '학생휴게실', building: 'A', floor: 1, isOccupied: null },
+  { id: 'room-a-2-lounge', name: '하우스 라운지', building: 'A', floor: 2, isOccupied: null },
+  { id: 'room-a-3-lounge1', name: '학생 휴게실 1', building: 'A', floor: 3, isOccupied: null },
+  { id: 'room-a-3-lounge2', name: '학생 휴게실 2', building: 'A', floor: 3, isOccupied: null },
+  { id: 'room-a-3-reading', name: '노트북 열람실', building: 'A', floor: 3, isOccupied: null },
+  { id: 'room-b-1-store', name: '신관 매점', building: 'B', floor: 1, isOccupied: null },
+  { id: 'room-b-2-meeting', name: '신관 2층 회의실', building: 'B', floor: 2, isOccupied: null },
+  { id: 'room-b-3-meeting', name: '신관 3층 회의실', building: 'B', floor: 3, isOccupied: null }
+];
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  // 초기 상태는 mockRooms를 베이스로 사용합니다.
-  const [rooms, setRooms] = useState<Room[]>(mockRooms);
+  const [isDarkMode, setIsDarkMode] = useState(false); // 상태 고정 해제: 새로고침 시 무조건 라이트 모드
+
+  const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   
-  // 타이머 메모리 누수 방지를 위한 Ref
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -27,11 +39,8 @@ function App() {
 
       socket.onopen = () => {
         console.log('✅ WebSocket 연결 수립 완료');
-        
-        // 1. 초기 상태 요청 (getState)
         socket?.send(JSON.stringify({ action: 'getState' }));
 
-        // 2. Heartbeat (Ping) 설정: API GW Timeout(10분) 대비 8분(480초) 주기로 전송
         const EIGHT_MINUTES = 8 * 60 * 1000;
         pingIntervalRef.current = setInterval(() => {
           if (socket?.readyState === WebSocket.OPEN) {
@@ -44,28 +53,18 @@ function App() {
         try {
           const data = JSON.parse(event.data);
 
-          // 서버 응답 분기 처리
-          if (data.type === 'pong') {
-            // Ping에 대한 정상 응답 (로그 외 특별한 처리 불필요)
-            return;
-          }
+          if (data.type === 'pong') return;
 
           if (data.type === 'state' && data.rooms) {
-            // 🚨 백엔드 객체 데이터 -> 프론트엔드 배열 데이터 병합 로직
-            const updatedRooms = mockRooms.map((room) => {
-              // 프론트엔드 ID(room-a-1)를 백엔드 Key(room_a_1) 포맷으로 임시 변환하여 매칭
+            // 🚨 백엔드 키 규격(room_a_1_community)을 프론트엔드 규격(room-a-1-community)에 매핑하여 동기화
+            setRooms(prevRooms => prevRooms.map(room => {
               const backendKey = room.id.replace(/-/g, '_');
-              
               return {
                 ...room,
-                // 백엔드 데이터에 해당 키가 존재하면 상태 반영, 없으면 기존 상태 유지
                 isOccupied: data.rooms[backendKey] ?? room.isOccupied
               };
-            });
+            }));
 
-            setRooms(updatedRooms);
-
-            // 서버 제공 Timestamp 활용
             if (data.timestamp) {
               const date = new Date(data.timestamp);
               setLastUpdated(
@@ -84,7 +83,6 @@ function App() {
 
       socket.onclose = () => {
         console.log('🔌 WebSocket 연결 종료. 5초 후 재연결 시도...');
-        // Ping 인터벌 해제
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
         
         setTimeout(() => {
@@ -97,9 +95,7 @@ function App() {
 
     return () => {
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      if (socket) {
-        socket.close();
-      }
+      if (socket) socket.close();
     };
   }, [isAuthenticated]);
 

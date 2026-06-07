@@ -4,6 +4,6 @@ export interface Room {
   name: string;
   building: 'A' | 'B';
   floor: number;
-  isOccupied: boolean;
+  isOccupied: boolean | null;
   description?: string;
 }
