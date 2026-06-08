@@ -1,8 +1,4 @@
-import {
-  UserManager,
-  InMemoryWebStorage,
-  WebStorageStateStore,
-} from 'oidc-client-ts';
+import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 
 // PKCE public client. client_secret 없이 프론트가 전체 인증 흐름 처리.
 // VITE_CLIENT_ID / VITE_REDIRECT_URI / VITE_WS_URL 은 CI(frontend.yml)가 환경별 주입.
@@ -12,21 +8,22 @@ const userManager = new UserManager({
   client_id: import.meta.env.VITE_CLIENT_ID,
   redirect_uri: import.meta.env.VITE_REDIRECT_URI,
   response_type: 'code',
-  // IdP client 에 등록된 mandatory scope 와 일치해야 함
-  scope: 'openid email name student_id offline_access',
-  // access_token 인메모리 보관 (XSS 방어). stateStore 는 기본값(sessionStorage)
-  // 유지 — OIDC redirect 구간에서 PKCE state 생존 필요
-  userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
+  // openid 미요청 → id_token 안 받음. WS authorizer 가 access_token 으로 userinfo
+  // 검증만 하므로 id_token/profile 불필요. PII 토큰을 브라우저에 안 둠.
+  scope: 'email name student_id offline_access',
+  // User(access+refresh_token) localStorage 보관 → 새로고침 후 세션 생존.
+  // refresh_token XSS 노출은 감수: 이 client scope 가 곧 블래스트 반경(WS 점유율
+  // 조회 + userinfo)으로 작고, refresh grant 갱신이라 새로고침 UX 가 우선.
+  userStore: new WebStorageStateStore({ store: window.localStorage }),
   automaticSilentRenew: true,
   includeIdTokenInSilentRenew: false,
   accessTokenExpiringNotificationTimeInSeconds: 60,
 });
 
 export const authService = {
-  // 로그인 페이지로 이동 (openid scope → nonce 필수, offline_access → consent 필요)
+  // 로그인 페이지로 이동 (offline_access → refresh_token 발급 위해 consent 필요)
   login: () =>
     userManager.signinRedirect({
-      nonce: crypto.randomUUID(),
       prompt: 'consent',
     }),
 
