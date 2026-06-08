@@ -35,8 +35,10 @@ function App() {
           window.history.replaceState({}, '', '/');
           setUser(u);
         } else {
-          // 새로고침: 인메모리 토큰 확인 (없으면 로그인 화면)
-          const u = await authService.getUser();
+          // 새로고침: localStorage 의 User 복원. access_token 만료 시 refresh_token
+          // 으로 갱신 (refresh 실패 → catch → 로그인 화면).
+          let u = await authService.getUser();
+          if (u?.expired) u = await authService.signinSilent();
           if (u && !u.expired) setUser(u);
         }
       } catch (e) {
