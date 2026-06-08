@@ -21,21 +21,14 @@ const userManager = new UserManager({
 });
 
 export const authService = {
-  // 로그인 페이지로 이동 (offline_access → refresh_token 발급 위해 consent 필요)
+  // offline_access → refresh_token 발급 위해 consent 강제
   login: () =>
     userManager.signinRedirect({
       prompt: 'consent',
     }),
 
-  // redirect 복귀 시 authorization_code → 토큰 교환
   handleCallback: () => userManager.signinRedirectCallback(),
-
-  // 인메모리에 저장된 현재 사용자 (없으면 null)
   getUser: () => userManager.getUser(),
-
-  // 토큰 만료 시 hidden iframe 으로 조용히 재발급
   signinSilent: () => userManager.signinSilent(),
-
-  // 로그아웃 (인메모리 사용자 제거)
   logout: () => userManager.removeUser(),
 };

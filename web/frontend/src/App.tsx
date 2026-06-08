@@ -1,4 +1,3 @@
-// web/src/App.tsx
 import { useState, useEffect, useRef } from 'react';
 import type { User } from 'oidc-client-ts';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
@@ -104,7 +103,13 @@ function App() {
             console.error('❌ silent renew 실패:', e);
           }
         }
-        if (fresh?.access_token) connect(fresh.access_token);
+        if (closedByCleanup) return;                  // BUG A: await 중 cleanup 레이스 → 중단
+        if (fresh && !fresh.expired) {
+          connect(fresh.access_token);
+        } else {
+          console.warn('🔒 토큰 갱신 실패 → 로그인 필요');
+          setUser(null);                              // BUG F: 만료 무한루프 차단, LoginPage 폴백
+        }
       }, delay);
     };
 
@@ -188,10 +193,10 @@ function App() {
 
       <main className="flex-1 w-full h-full relative overflow-hidden">
         <div className="md:hidden w-full h-full relative">
-          <IsometricBuilding rooms={rooms} />
+          <IsometricBuilding rooms={rooms} isDarkMode={isDarkMode} />
         </div>
         <div className="hidden md:flex w-full h-full">
-          <IntegratedBuilding rooms={rooms} />
+          <IntegratedBuilding rooms={rooms} isDarkMode={isDarkMode} />
         </div>
       </main>
     </div>
