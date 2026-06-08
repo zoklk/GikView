@@ -1,8 +1,8 @@
 import type { Room } from '../types/room';
 
-// 방 메타데이터(이름/층/동)만 보유. isOccupied 는 null 시드 → WS state 수신 전
+// 방 메타데이터(이름/층/동) 정적 카탈로그. isOccupied 는 null 시드 → WS state 수신 전
 // 회색(unknown) 렌더. 실제 점유는 백엔드 state 가 주입.
-export const mockRooms: Room[] = [
+export const roomCatalog: Room[] = [
   // A동 (구관)
   { id: 'room-a-1-community', name: '커뮤니티실', building: 'A', floor: 1, isOccupied: null },
   { id: 'room-a-1-lounge', name: '학생휴게실', building: 'A', floor: 1, isOccupied: null },

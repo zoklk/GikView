@@ -5,7 +5,7 @@ import { IsometricBuilding } from './components/IsometricBuilding';
 import { LoginPage } from './components/LoginPage';
 import { WS_BASE_URL } from './services/api';
 import { authService } from './services/auth';
-import { mockRooms } from './mock/roomMock'; // 방 메타데이터(이름/층/동) 베이스
+import { roomCatalog } from './data/roomCatalog'; // 방 메타데이터(이름/층/동) 베이스
 import type { Room } from './types/room';
 import type { WsMessage } from './types/ws';
 
@@ -15,7 +15,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [rooms, setRooms] = useState<Room[]>(mockRooms);
+  const [rooms, setRooms] = useState<Room[]>(roomCatalog);
   const [lastUpdated, setLastUpdated] = useState<string>('');
 
   // StrictMode 이중 마운트 시 callback 중복 교환 방지
@@ -75,9 +75,9 @@ function App() {
     const handleMessage = (data: WsMessage) => {
       if (data.type === 'pong') return;
       if (data.type === 'state') {
-        // 매 수신마다 rooms 전체 교체. mockRooms 메타데이터에 백엔드 occupancy 주입.
+        // 매 수신마다 rooms 전체 교체. roomCatalog 메타데이터에 백엔드 occupancy 주입.
         // 프론트 id(room-a-1-lounge) → 백엔드 key(room_a_1_lounge) 변환.
-        const next = mockRooms.map((room) => ({
+        const next = roomCatalog.map((room) => ({
           ...room,
           isOccupied: data.rooms[room.id.replace(/-/g, '_')] ?? false,
         }));
