@@ -6,9 +6,7 @@ from log_util import get_logger
 
 logger = get_logger(__name__)
 
-# GIST IdP access_token 은 opaque reference token 이라 오프라인 JWKS 서명검증이
-# 불가하다. 매 $connect 마다 userinfo 1회 호출로 검증한다 (WS 연결은 long-lived,
-# 연결 빈도 낮아 캐싱 불필요).
+# opaque access_token → 오프라인 JWKS 검증 불가. $connect 마다 userinfo 1회 호출로 검증.
 USERINFO_URL = "https://api.account.gistory.me/oauth/userinfo"
 
 
@@ -52,7 +50,7 @@ def lambda_handler(event, _context):
     try:
         claims = _userinfo(token)
     except urllib.error.HTTPError as e:
-        # 401 등 비-200 → 무효 토큰. 사유만 기록, token 자체는 절대 안 찍음.
+        # 비-200 → 무효 토큰. 사유만 기록, token 값은 안 찍음.
         logger.warning("auth denied: HTTP %s", e.code)
         raise Exception("Unauthorized")
     except Exception as e:

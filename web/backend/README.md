@@ -41,7 +41,7 @@ route 4종(`$connect`/`$disconnect`/`ping`/`getState`) `routeKey` 분기 통합 
 - `$disconnect`: connections delete
 - `ping`: `{"type":"pong"}` (keepalive)
 - `getState`: rooms full scan → 해당 연결만 `{"type":"state",...}` push (초기 상태 pull)
-- Management endpoint: event `domainName`/`stage`로 분기
+- Management endpoint: `WS_ENDPOINT` env. `apigatewaymanagementapi` client 는 broadcast 와 동일하게 모듈 스코프 1회 생성 → cold init 에 비용 흡수, warm 요청은 client 생성/TLS 재핸드셰이크 0 (getState 지연 제거)
 
 ## broadcast.py
 

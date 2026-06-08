@@ -13,20 +13,18 @@ logger = get_logger(__name__)
 
 CONNECTIONS_TABLE = os.environ["CONNECTIONS_TABLE"]
 ROOMS_TABLE = os.environ["ROOMS_TABLE"]
+WS_ENDPOINT = os.environ["WS_ENDPOINT"]
 CONNECTION_TTL_SECONDS = 7200
 
 _dynamodb = boto3.resource("dynamodb")
 _connections = _dynamodb.Table(CONNECTIONS_TABLE)
 _rooms = _dynamodb.Table(ROOMS_TABLE)
+# 모듈 스코프 1회 생성 → warm 요청 client/TLS 재사용 (getState 지연 제거).
+_mgmt = boto3.client("apigatewaymanagementapi", endpoint_url=WS_ENDPOINT)
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _mgmt_client(event):
-    endpoint = f"https://{event['requestContext']['domainName']}/{event['requestContext']['stage']}"
-    return boto3.client("apigatewaymanagementapi", endpoint_url=endpoint)
 
 
 def _scan_rooms() -> dict:
@@ -41,9 +39,9 @@ def _scan_rooms() -> dict:
         kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
 
 
-def _post(client, connection_id: str, payload: dict) -> None:
+def _post(connection_id: str, payload: dict) -> None:
     try:
-        client.post_to_connection(
+        _mgmt.post_to_connection(
             ConnectionId=connection_id,
             Data=json.dumps(payload).encode("utf-8"),
         )
@@ -73,9 +71,7 @@ def _on_disconnect(event):
 
 
 def _on_ping(event):
-    _post(
-        _mgmt_client(event), event["requestContext"]["connectionId"], {"type": "pong"}
-    )
+    _post(event["requestContext"]["connectionId"], {"type": "pong"})
     return {"statusCode": 200}
 
 
@@ -85,7 +81,7 @@ def _on_get_state(event):
         "rooms": _scan_rooms(),
         "timestamp": _now_iso(),
     }
-    _post(_mgmt_client(event), event["requestContext"]["connectionId"], payload)
+    _post(event["requestContext"]["connectionId"], payload)
     return {"statusCode": 200}
 
 
