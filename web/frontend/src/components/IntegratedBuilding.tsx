@@ -1,12 +1,12 @@
-// web/src/components/IntegratedBuilding.tsx
 import React, { useEffect, useRef, useMemo } from 'react';
 import type { Room } from '../types/room';
 
 interface Props {
   rooms: Room[];
+  isDarkMode: boolean;
 }
 
-export const IntegratedBuilding: React.FC<Props> = ({ rooms }) => {
+export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
   const svgContainerRef = useRef<HTMLDivElement>(null);
 
   const figmaSvg = `
@@ -151,7 +151,7 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms }) => {
 </svg>
     `;
 
-  // 🚨 문자열 가위질 로직 (PC 버전)
+  // 글자(#1E293B) path 를 잘라 </svg> 직전으로 이동 → 도형 위에 항상 표시
   const focusedSvg = useMemo(() => {
     let processed = figmaSvg.replace(/viewBox="[^"]*"/, `viewBox="0 0 9150 3833"`);
     const textElements = processed.match(/<path[^>]*fill="#1E293B"[^>]*\/>/g) || [];
@@ -168,12 +168,15 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms }) => {
     rooms.forEach((room) => {
       const roomElement = svgEl.querySelector(`#${room.id}`) as SVGGraphicsElement;
       if (roomElement) {
-        roomElement.style.fill = room.isOccupied ? '#E56B6F' : '#2EBFA5';
+        roomElement.style.fill =
+          room.isOccupied === null ? '#94A3B8'   // 수신 전(unknown)
+            : room.isOccupied ? '#E56B6F'        // 점유
+            : '#2EBFA5';                          // 미점유
         roomElement.style.fillOpacity = '0.6';
         roomElement.style.transition = 'fill 0.3s ease';
       }
     });
-  }, [rooms]);
+  }, [rooms, isDarkMode]); // 다크 토글 리렌더 후 inline fill 재적용
 
   return (
     <div className="w-full h-full flex justify-center items-center p-8 overflow-hidden bg-transparent">

@@ -1,15 +1,14 @@
-// web/src/components/IsometricBuilding.tsx
 import React, { useEffect, useRef, useMemo } from 'react';
 import type { Room } from '../types/room';
 
 interface Props {
   rooms: Room[];
+  isDarkMode: boolean;
 }
 
-export const IsometricBuilding: React.FC<Props> = ({ rooms }) => {
+export const IsometricBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
   const svgContainerRef = useRef<HTMLDivElement>(null);
 
-  // 👇 여기에 선배님의 원본 SVG를 넣으세요!
   const figmaSvg = `
   <svg width="9083" height="4172" viewBox="0 0 9083 4172" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g opacity="0.5">
@@ -152,45 +151,38 @@ export const IsometricBuilding: React.FC<Props> = ({ rooms }) => {
 </svg>
     `;
 
-  // 🚨 [최종 필살기] 화면에 그리기 전에 문자열 자체를 가위로 오려 붙입니다!
+  // 글자(#1E293B) path 를 잘라 </svg> 직전으로 이동 → 도형 위에 항상 표시
   const focusedSvg = useMemo(() => {
-    // 1. 뷰박스 먼저 변경
     let processed = figmaSvg.replace(/viewBox="[^"]*"/, `viewBox="0 0 9150 3833"`);
-
-    // 2. 글자(검은색 도형) 코드를 모두 찾아서 복사
     const textElements = processed.match(/<path[^>]*fill="#1E293B"[^>]*\/>/g) || [];
-    
-    // 3. 원래 있던 자리에서 글자 코드를 싹 다 지움 (잘라내기)
     processed = processed.replace(/<path[^>]*fill="#1E293B"[^>]*\/>/g, '');
-    
-    // 4. 잘라낸 글자 코드를 SVG 맨 마지막(</svg> 직전)에 통째로 붙여넣기!
     processed = processed.replace('</svg>', textElements.join('\n') + '\n</svg>');
-
     return processed;
-  }, []); // 렌더링될 때 딱 한 번만 수행하므로 성능 문제도 없습니다.
+  }, []);
 
   useEffect(() => {
     if (!svgContainerRef.current || rooms.length === 0) return;
     const svgEl = svgContainerRef.current.querySelector('svg');
     if (!svgEl) return;
 
-    // 방 색깔만 칠합니다. (글자는 이미 문자열 조작으로 맨 위에 떠 있습니다!)
     rooms.forEach((room) => {
       const roomElement = svgEl.querySelector(`#${room.id}`) as SVGGraphicsElement;
       if (roomElement) {
-        roomElement.style.fill = room.isOccupied ? '#E56B6F' : '#2EBFA5';
+        roomElement.style.fill =
+          room.isOccupied === null ? '#94A3B8'   // 수신 전(unknown)
+            : room.isOccupied ? '#E56B6F'        // 점유
+            : '#2EBFA5';                          // 미점유
         roomElement.style.fillOpacity = '0.6';
         roomElement.style.transition = 'fill 0.3s ease';
       }
     });
-  }, [rooms]);
+  }, [rooms, isDarkMode]); // 다크 토글 리렌더 후 inline fill 재적용
 
   return (
     <div 
       className="w-full h-full overflow-x-auto overflow-y-auto snap-x snap-mandatory"
       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
     >
-      {/* 이제 복잡한 z-index 꼼수는 지우고 다크모드 대응만 남깁니다. */}
       <style>{`
         .dark svg path[stroke="#D7DEE8"] { stroke: #64748B !important; }
         .dark svg rect[stroke="#D7DEE8"] { stroke: #64748B !important; }
