@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import type { User } from 'oidc-client-ts';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
 import { IsometricBuilding } from './components/IsometricBuilding';
@@ -6,17 +6,41 @@ import { LoginPage } from './components/LoginPage';
 import { WS_BASE_URL } from './services/api';
 import { authService } from './services/auth';
 import { roomCatalog } from './data/roomCatalog'; // 방 메타데이터(이름/층/동) 베이스
+import { STATUS } from './theme';
 import type { Room } from './types/room';
 import type { WsMessage } from './types/ws';
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 
+// 다크모드 초기값: 저장값 우선, 없으면 시스템 설정 폴백
+const getInitialDark = () => {
+  const saved = localStorage.getItem('theme');
+  if (saved) return saved === 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+};
+
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(getInitialDark);
   const [rooms, setRooms] = useState<Room[]>(roomCatalog);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+
+  // 다크모드 영속화
+  useEffect(() => {
+    localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
+
+  // 재실 요약: 한눈에 빈 방/사용 중 파악
+  const counts = useMemo(() => {
+    let free = 0, occupied = 0, unknown = 0;
+    for (const r of rooms) {
+      if (r.isOccupied === null) unknown++;
+      else if (r.isOccupied) occupied++;
+      else free++;
+    }
+    return { free, occupied, unknown, total: rooms.length };
+  }, [rooms]);
 
   // StrictMode 이중 마운트 시 callback 중복 교환 방지
   const bootstrappedRef = useRef(false);
@@ -154,8 +178,11 @@ function App() {
 
   if (!authReady) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#F7F9FB] text-[#1E293B] font-sans">
-        Loading...
+      <div className={`app-surface h-screen w-screen flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
+        <div className="flex items-center gap-3 text-[#1E293B] dark:text-slate-100">
+          <span className="h-5 w-5 rounded-full border-2 border-[#1F7A8C]/30 border-t-[#1F7A8C] animate-spin" />
+          <span className="text-sm font-medium tracking-wide opacity-70">불러오는 중…</span>
+        </div>
       </div>
     );
   }
@@ -165,29 +192,41 @@ function App() {
   }
 
   return (
-    <div className={`h-screen w-screen overflow-hidden flex flex-col font-sans select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#0F172A]' : 'bg-[#F7F9FB]'}`}>
-      <header className="flex justify-between items-center p-4 md:p-6 bg-[#FFFFFF] dark:bg-[#1E293B] border-b-4 border-[#1F7A8C] z-20 shrink-0 shadow-sm transition-colors duration-300">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 shadow-sm border border-gray-200 dark:border-gray-600 active:scale-95 transition-transform"
-          >
-            {isDarkMode ? '🌙' : '☀️'}
-          </button>
-          <div className="flex items-center gap-1.5 text-xs font-bold text-gray-500 dark:text-gray-400">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2EBFA5] opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2EBFA5]"></span>
-            </span>
-            Updated {lastUpdated || 'Loading...'}
+    <div className={`app-surface h-screen w-screen overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
+      <header className="glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]">
+        <div className="flex justify-between items-center px-4 md:px-7 py-3 md:py-4">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              aria-label="테마 전환"
+              className="grid place-items-center h-9 w-9 rounded-xl glass text-[#1F7A8C] dark:text-[#2EBFA5] shadow-sm hover:scale-105 active:scale-95 transition-transform"
+            >
+              <ThemeIcon dark={isDarkMode} />
+            </button>
+            <div className="flex items-center gap-1.5 text-[11px] md:text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2EBFA5] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2EBFA5]" />
+              </span>
+              {lastUpdated || '연결 중'}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-end">
+            <h1 className="text-3xl md:text-4xl font-black italic tracking-tighter uppercase leading-none text-[#1E293B] dark:text-[#E6F4F3]">
+              Gik<span className="text-[#1F7A8C] dark:text-[#2EBFA5]">View</span>
+            </h1>
+            <span className="mt-1.5 h-1 w-16 md:w-20 rounded-full bg-gradient-to-r from-[#1F7A8C] to-[#2EBFA5]" />
           </div>
         </div>
 
-        <div className="flex flex-col items-end">
-          <h1 className="text-4xl md:text-5xl font-black italic tracking-tighter uppercase leading-none text-[#1E293B] dark:text-white transition-colors duration-300">
-            GikView
-          </h1>
-          <div className="h-2 w-full bg-[#1F7A8C] mt-2"></div>
+        {/* 재실 요약 범례 — 색 의존 줄이고 텍스트+카운트로 직관 강화 */}
+        <div className="flex items-center gap-2 px-4 md:px-7 pb-2.5 -mt-0.5 overflow-x-auto">
+          <LegendChip color={STATUS.free} label="비어있음" count={counts.free} />
+          <LegendChip color={STATUS.occupied} label="사용 중" count={counts.occupied} />
+          {counts.unknown > 0 && (
+            <LegendChip color={STATUS.unknown} label="확인 중" count={counts.unknown} />
+          )}
         </div>
       </header>
 
@@ -200,6 +239,36 @@ function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+// Sun/Moon 인라인 아이콘 (lucide path). 아이콘 한두 개 위해 lucide-react 배럴
+// 전체(1500+ 모듈) 끌어오면 prod 번들러 부하 → 인라인으로 대체.
+function ThemeIcon({ dark }: { dark: boolean }) {
+  return (
+    <svg
+      width={17} height={17} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+    >
+      {dark ? (
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function LegendChip({ color, label, count }: { color: string; label: string; count: number }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0 rounded-full glass px-2.5 py-1 text-[11px] md:text-xs font-semibold text-slate-600 dark:text-slate-300 shadow-sm">
+      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+      {label}
+      <span className="tabular-nums font-bold text-[#1E293B] dark:text-white">{count}</span>
+    </span>
   );
 }
 
