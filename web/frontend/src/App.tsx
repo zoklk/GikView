@@ -25,11 +25,22 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState(getInitialDark);
   const [rooms, setRooms] = useState<Room[]>(roomCatalog);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  // 활성 빌딩 단일 마운트용. display 토글(md:hidden) 대신 조건부 렌더 →
+  // 보이는 상태에서만 SVG fill 주입(숨김 중 칠하면 Chrome repaint 누락 버그).
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
   // 다크모드 영속화
   useEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
+
+  // md(768px) 경계 추적 → 활성 빌딩 전환
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // 재실 요약: 한눈에 빈 방/사용 중 파악
   const counts = useMemo(() => {
@@ -127,12 +138,12 @@ function App() {
             console.error('❌ silent renew 실패:', e);
           }
         }
-        if (closedByCleanup) return;                  // BUG A: await 중 cleanup 레이스 → 중단
+        if (closedByCleanup) return;                  // await 중 언마운트 레이스 가드
         if (fresh && !fresh.expired) {
           connect(fresh.access_token);
         } else {
           console.warn('🔒 토큰 갱신 실패 → 로그인 필요');
-          setUser(null);                              // BUG F: 만료 무한루프 차단, LoginPage 폴백
+          setUser(null);                              // 만료 무한 재연결 차단 → LoginPage 폴백
         }
       }, delay);
     };
@@ -178,7 +189,7 @@ function App() {
 
   if (!authReady) {
     return (
-      <div className={`app-surface h-screen w-screen flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
+      <div className={`app-surface h-dvh w-dvw flex items-center justify-center ${isDarkMode ? 'dark' : ''}`}>
         <div className="flex items-center gap-3 text-[#1E293B] dark:text-slate-100">
           <span className="h-5 w-5 rounded-full border-2 border-[#1F7A8C]/30 border-t-[#1F7A8C] animate-spin" />
           <span className="text-sm font-medium tracking-wide opacity-70">불러오는 중…</span>
@@ -192,7 +203,7 @@ function App() {
   }
 
   return (
-    <div className={`app-surface h-screen w-screen overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
+    <div className={`app-surface h-dvh w-dvw overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
       <header className="glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]">
         <div className="flex justify-between items-center px-4 md:px-7 py-3 md:py-4">
           <div className="flex items-center gap-2.5">
@@ -231,12 +242,11 @@ function App() {
       </header>
 
       <main className="flex-1 w-full h-full relative overflow-hidden">
-        <div className="md:hidden w-full h-full relative">
-          <IsometricBuilding rooms={rooms} isDarkMode={isDarkMode} />
-        </div>
-        <div className="hidden md:flex w-full h-full">
+        {isDesktop ? (
           <IntegratedBuilding rooms={rooms} isDarkMode={isDarkMode} />
-        </div>
+        ) : (
+          <IsometricBuilding rooms={rooms} isDarkMode={isDarkMode} />
+        )}
       </main>
     </div>
   );
