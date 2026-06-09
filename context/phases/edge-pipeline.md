@@ -85,7 +85,12 @@
 - **ConfigMap 변경 시 rollout** — Reloader annotation:
   - `secret.reloader.stakater.com/reload: "edge-gateway-tls"`
   - `configmap.reloader.stakater.com/reload: "device-room-mapping"`
-- **Port**: 없음 (outbound only).
+- **Prometheus 메트릭 노출 (monitoring 연계)**: AWS 쓰기 경로 실패(STS 자격증명 갱신 실패, DynamoDB `PutItem` 실패)는 Edge Gateway 내부에서만 관측 가능 — InfluxDB 적재는 계속되고 DynamoDB 쓰기만 막히므로(결정 2) 클러스터 내 다른 신호로는 안 잡힘. visibility phase 가 이를 스크랩하도록 `promhttp` 핸들러로 `:9101/metrics` 를 열어둔다.
+  - `edge_gateway_dynamodb_putitem_total{result="ok|error"}`
+  - `edge_gateway_sts_refresh_total{result="ok|error"}`
+  - `edge_gateway_last_write_timestamp_seconds` (gauge)
+- **Port**:
+  - `metrics: 9101` — Prometheus 스크랩 전용 (`/metrics`). 데이터 경로는 outbound only.
 - **리소스**: CPU `50m`/`200m`, Memory `64Mi`/`128Mi`.
 
 ## ConfigMap
