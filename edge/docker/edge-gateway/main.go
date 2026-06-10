@@ -28,12 +28,54 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
 	topicPrefix = "sensors/"
 	topicSuffix = "/occupancy"
+	metricsAddr = ":9101"
 )
+
+// Prometheus 계측 — visibility phase 스크랩 타겟(edge-gateway.svc:9101/metrics).
+// PutItem(DynamoDB egress) 와 STS(IAM Roles Anywhere) 자격증명 갱신 성공/실패를 노출.
+var (
+	putItemTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "edge_gateway_dynamodb_putitem_total",
+		Help: "DynamoDB PutItem attempts, by table and result (success|error).",
+	}, []string{"table", "result"})
+
+	stsRefreshTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "edge_gateway_sts_refresh_total",
+		Help: "IAM Roles Anywhere credential refreshes, by result (success|error).",
+	}, []string{"result"})
+)
+
+// serveMetrics 는 /metrics 를 metricsAddr 에서 노출(블로킹) — main 에서 goroutine 으로 기동.
+func serveMetrics() {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	srv := &http.Server{Addr: metricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	log.Printf("metrics server listening on %s/metrics", metricsAddr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("WARN: metrics server stopped: %v", err)
+	}
+}
+
+// countingCredsProvider 는 자격증명 공급자를 감싸 Retrieve(=STS 갱신) 결과를 계측.
+type countingCredsProvider struct{ inner aws.CredentialsProvider }
+
+func (c countingCredsProvider) Retrieve(ctx context.Context) (aws.Credentials, error) {
+	creds, err := c.inner.Retrieve(ctx)
+	if err != nil {
+		stsRefreshTotal.WithLabelValues("error").Inc()
+	} else {
+		stsRefreshTotal.WithLabelValues("success").Inc()
+	}
+	return creds, err
+}
 
 type Config struct {
 	EMQXBrokerURL  string
@@ -212,7 +254,10 @@ func (d *dynamoWriter) put(ctx context.Context, room string, s roomState) error 
 			TableName: aws.String(table),
 			Item:      item,
 		}); err != nil {
+			putItemTotal.WithLabelValues(table, "error").Inc()
 			errs = append(errs, fmt.Errorf("table %s: %w", table, err))
+		} else {
+			putItemTotal.WithLabelValues(table, "success").Inc()
 		}
 	}
 	return errors.Join(errs...)
@@ -300,7 +345,7 @@ func buildAWSConfig(ctx context.Context, cfg *Config) (aws.Config, error) {
 	prov := processcreds.NewProvider(cmd)
 	return awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(cfg.AWSRegion),
-		awsconfig.WithCredentialsProvider(aws.NewCredentialsCache(prov)),
+		awsconfig.WithCredentialsProvider(aws.NewCredentialsCache(countingCredsProvider{inner: prov})),
 	)
 }
 
@@ -355,6 +400,16 @@ func handleMessage(
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
 	cfg := loadConfig()
+
+	go serveMetrics()
+
+	// 카운터 0-초기화 — 첫 트래픽(PutItem/STS 갱신) 전에도 시리즈를 노출해 대시보드 No-data 방지.
+	for _, t := range cfg.DynamoTables {
+		putItemTotal.WithLabelValues(t, "success").Add(0)
+		putItemTotal.WithLabelValues(t, "error").Add(0)
+	}
+	stsRefreshTotal.WithLabelValues("success").Add(0)
+	stsRefreshTotal.WithLabelValues("error").Add(0)
 
 	mapping, err := loadMapping(cfg.MappingFile)
 	if err != nil {

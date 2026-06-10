@@ -52,6 +52,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
           env:
             - name: POD_NAME
               valueFrom:
@@ -92,6 +96,12 @@ spec:
               value: {{ .Values.domainSuffix | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: edge-gateway-tls
               mountPath: {{ .Values.tls.mountPath }}
