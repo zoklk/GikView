@@ -1,0 +1,47 @@
+replicaCount: 2
+
+image:
+  repository: cloudflare/cloudflared
+  tag: "2026.5.2"
+  pullPolicy: IfNotPresent
+
+# cloudflared 진단 HTTP 서버(클러스터 내부 전용). /ready(터널 connection>=1 시 200), /metrics.
+# 데이터 경로는 outbound-only — 인터넷 inbound 0 유지.
+metricsPort: 2000
+
+# Cloudflare Tunnel 토큰 = Secret (git 평문 금지). 원격관리형 — 라우팅/Access 는 대시보드.
+tokenSecret:
+  name: cloudflared-token
+  key: token
+
+# 학내망이 QUIC(UDP 7844)를 막으면 "http2"(TCP 443)로 폴백.
+protocol: quic
+
+resources:
+  requests:
+    cpu: "20m"
+    memory: "32Mi"
+  limits:
+    cpu: "100m"
+    memory: "128Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}

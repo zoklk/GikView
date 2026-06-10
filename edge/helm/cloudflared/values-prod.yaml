@@ -1,0 +1,6 @@
+replicaCount: 2
+
+nodeSelector:
+  kubernetes.io/hostname: e-s2
+
+protocol: quic
