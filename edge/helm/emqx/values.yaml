@@ -44,8 +44,11 @@ emqxConfig:
   EMQX_MQTT__PEER_CERT_AS_USERNAME: "cn"
   EMQX_AUTHORIZATION__NO_MATCH: "deny"
   EMQX_AUTHORIZATION__SOURCES: '[{type = file, enable = true, path = "/etc/emqx/acl/acl.conf"}]'
-  # Dashboard bound to loopback: reachable only via `kubectl port-forward` or pods/exec.
-  EMQX_DASHBOARD__LISTENERS__HTTP__BIND: "127.0.0.1:18083"
+  # Dashboard/management HTTP listener also serves the Prometheus pull endpoint
+  # (/api/v5/prometheus/stats); EMQX OSS can't split it onto its own listener. Binding to
+  # loopback (이전 127.0.0.1) RST 시킨 in-cluster scrape → emqx 메트릭 0. 0.0.0.0 로 열되
+  # 외부 노출은 없음 — NodePort 는 mqtts(31884)만, 18083 은 ClusterIP/headless 클러스터 내부 전용.
+  EMQX_DASHBOARD__LISTENERS__HTTP__BIND: "0.0.0.0:18083"
 
 resources:
   requests:
