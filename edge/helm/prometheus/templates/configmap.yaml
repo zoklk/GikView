@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.config.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.scrapeInterval }}
+      evaluation_interval: {{ .Values.scrapeInterval }}
+
+    rule_files:
+      - {{ .Values.rules.mountPath }}/*.yaml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager.{{ .Release.Namespace }}.svc:9093"]
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:{{ .Values.service.port }}"]
+
+      - job_name: node-exporter
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["{{ .Release.Namespace }}"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: node-exporter
+            action: keep
+
+      - job_name: influxdb
+        metrics_path: /metrics
+        static_configs:
+          - targets: ["influxdb.gikview.svc:8181"]
+
+      - job_name: emqx
+        metrics_path: /api/v5/prometheus/stats
+        static_configs:
+          - targets: ["emqx-dashboard.gikview.svc:18083"]
+
+      - job_name: cert-manager
+        static_configs:
+          - targets: ["cert-manager.gikview.svc:9402"]
+
+      - job_name: telegraf-freshness
+        static_configs:
+          - targets: ["telegraf-freshness.{{ .Release.Namespace }}.svc:9273"]
+
+      - job_name: edge-gateway
+        static_configs:
+          - targets: ["edge-gateway.gikview.svc:9101"]
+      {{- if .Values.etcd.target }}
+
+      - job_name: etcd
+        scheme: http
+        static_configs:
+          - targets: ["{{ .Values.etcd.target }}"]
+      {{- end }}

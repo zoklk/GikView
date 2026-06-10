@@ -1,0 +1,21 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s2
+
+# 운영자: e-s1 내부 IP:2381 (etcd-expose-metrics 선행). 비우면 etcd job 미생성.
+etcd:
+  target: ""
+
+persistence:
+  storageClassName: local-storage
+  pvName: prometheus-pv-prod
+  size: 8Gi
+  hostPath: /var/lib/prometheus
+  nodeHostname: e-s2
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "1000m"
+    memory: "1536Mi"

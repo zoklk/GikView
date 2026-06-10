@@ -1,0 +1,65 @@
+replicaCount: 1
+
+image:
+  repository: prom/prometheus
+  tag: "v3.12.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9090
+
+serviceAccountName: prometheus
+
+config:
+  configMapName: prometheus-config
+  mountPath: /etc/prometheus
+rules:
+  configMapName: prometheus-rules
+  mountPath: /etc/prometheus/rules
+
+# microSD random-write IOPS 보호(storage.md 결정 2, 260420 cascading-failure). 장기 시계열은 InfluxDB.
+retention: 14d
+scrapeInterval: 30s
+
+# etcd 메트릭 타겟. 운영자가 e-s1 K3s 에서 etcd-expose-metrics 선행 후 내부 IP:2381 주입.
+# 비우면 etcd job 미생성(나머지 스크랩엔 영향 없음). prometheus.md "etcd 메트릭 선행 설정".
+etcd:
+  target: ""
+
+persistence:
+  storageClassName: local-storage
+  pvName: prometheus-pv
+  size: 8Gi
+  hostPath: /var/lib/prometheus
+  nodeHostname: ""
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}

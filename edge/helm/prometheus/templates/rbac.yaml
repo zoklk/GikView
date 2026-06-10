@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccountName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-{{ .Chart.Name }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+rules:
+  # kubernetes_sd_configs(role: endpoints) 발견용. 누락 시 조용히 빈 타겟(prometheus.md).
+  - apiGroups: [""]
+    resources:
+      - endpoints
+      - services
+      - pods
+      - nodes
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-{{ .Chart.Name }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Namespace }}-{{ .Chart.Name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccountName }}
+    namespace: {{ .Release.Namespace }}
