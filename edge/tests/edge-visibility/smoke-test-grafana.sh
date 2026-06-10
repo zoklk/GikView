@@ -46,7 +46,10 @@ ADMIN_PW=$(kubectl get secret -n "$NS" "$SECRET_NAME" \
   echo "  actual: kubectl returned empty (namespace=$NS)"
   exit 1
 }
-AUTH="admin:${ADMIN_PW}"
+ADMIN_USER=$(kubectl get secret -n "$NS" "$SECRET_NAME" \
+  -o jsonpath='{.data.admin-user}' 2>/dev/null | base64 -d || true)
+[ -n "$ADMIN_USER" ] || ADMIN_USER="admin"   # key 없으면 기본값 fallback
+AUTH="${ADMIN_USER}:${ADMIN_PW}"
 
 DS=$(curl -sf -u "$AUTH" "${BASE}/api/datasources/name/Prometheus" 2>/dev/null || true)
 DS_UID=$(echo "$DS" | jq -r '.uid // ""')
