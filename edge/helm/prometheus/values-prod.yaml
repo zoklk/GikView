@@ -1,0 +1,21 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s2
+
+# e-s1 control-plane etcd listen-metrics-urls(http://192.168.0.101:2381) — scheme http·무인증.
+etcd:
+  target: "192.168.0.101:2381"
+
+persistence:
+  storageClassName: local-storage
+  pvName: prometheus-pv-prod
+  size: 8Gi
+  hostPath: /var/lib/prometheus
+  nodeHostname: e-s2
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "1000m"
+    memory: "1536Mi"

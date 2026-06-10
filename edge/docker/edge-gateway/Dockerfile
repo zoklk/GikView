@@ -9,7 +9,7 @@
 #   3) runtime         — alpine 3.20 with busybox (wget for smoke probes) +
 #      ca-certificates (AWS STS/DynamoDB TLS trust). Pod runs as uid 10001.
 
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.23
 ARG ALPINE_VERSION=3.20
 ARG SIGNING_HELPER_VERSION=1.5.0
 

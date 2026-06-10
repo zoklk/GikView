@@ -22,7 +22,7 @@
 | storage | InfluxDB | 작업 완료 | [storage.md](edge/storage.md) |
 | security | step-ca, cert-manager, mTLS, EST-like | 작업 완료 | [security.md](edge/security.md) |
 | pipeline | Edge Gateway, AWS Lambda, DynamoDB, API Gateway | 작업 완료 | [pipeline.md](edge/pipeline.md) |
-| visibility | Prometheus, Grafana, eBPF, Heartbeat | 진행 예정 | - |
+| visibility | Prometheus, Alertmanager, Grafana, Discord 알림 | 진행 중 | [visibility.md](edge/visibility.md) |
 
 ## end
 

@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.dashboards.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: gikview
+        orgId: 1
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+  cluster-resources.json: |
+    {
+      "title": "gikview cluster resources",
+      "uid": "gikview-cluster",
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        { "id": 1, "type": "row", "title": "Nodes", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+        {
+          "id": 2,
+          "title": "node-exporter up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"node-exporter\"}", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        {
+          "id": 3,
+          "title": "CPU usage %",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } },
+          "targets": [ { "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        {
+          "id": 4,
+          "title": "Memory usage %",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } },
+          "targets": [ { "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        {
+          "id": 5,
+          "title": "disk usage % (SSD)",
+          "type": "gauge",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 7 },
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 85 } ] } } },
+          "targets": [ { "expr": "100 - (node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"} * 100)", "refId": "A", "legendFormat": "{{`{{instance}}`}} {{`{{mountpoint}}`}}" } ]
+        },
+        {
+          "id": 6,
+          "title": "load1",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 7 },
+          "targets": [ { "expr": "node_load1", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        { "id": 7, "type": "row", "title": "etcd", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 } },
+        {
+          "id": 8,
+          "title": "etcd up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"etcd\"}", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        {
+          "id": 9,
+          "title": "etcd wal fsync p99 (s)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 16, "x": 8, "y": 14 },
+          "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.5 } ] } } },
+          "targets": [ { "expr": "histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))", "refId": "A", "legendFormat": "{{`{{instance}}`}}" } ]
+        },
+        { "id": 10, "type": "row", "title": "Certificates", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 } },
+        {
+          "id": 11,
+          "title": "cert expiry (days)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 21 },
+          "fieldConfig": { "defaults": { "unit": "d", "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 7 }, { "color": "green", "value": 30 } ] } } },
+          "targets": [ { "expr": "(certmanager_certificate_expiration_timestamp_seconds - time()) / 86400", "refId": "A", "legendFormat": "{{`{{name}}`}}" } ]
+        },
+        {
+          "id": 12,
+          "title": "cert-manager up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 21 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"cert-manager\"}", "refId": "A" } ]
+        }
+      ]
+    }
+  data-pipeline.json: |
+    {
+      "title": "gikview data pipeline",
+      "uid": "gikview-pipeline",
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        { "id": 1, "type": "row", "title": "Ingest — EMQX", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+        {
+          "id": 2,
+          "title": "emqx up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"emqx\"}", "refId": "A" } ]
+        },
+        {
+          "id": 3,
+          "title": "emqx connections",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+          "targets": [ { "expr": "sum(emqx_connections_count)", "refId": "A" } ]
+        },
+        {
+          "id": 4,
+          "title": "emqx messages dropped (rate)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
+          "targets": [ { "expr": "sum(rate(emqx_messages_dropped[5m]))", "refId": "A" } ]
+        },
+        {
+          "id": 5,
+          "title": "emqx ACL deny (10m)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "sum(increase(emqx_authorization_deny[10m]))", "refId": "A" } ]
+        },
+        { "id": 6, "type": "row", "title": "Bridge — Telegraf → InfluxDB", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 } },
+        {
+          "id": 7,
+          "title": "telegraf-freshness up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"telegraf-freshness\"}", "refId": "A" } ]
+        },
+        {
+          "id": 8,
+          "title": "telegraf gather errors (InfluxDB query)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "internal_gather_errors", "refId": "A", "legendFormat": "{{`{{input}}`}}" } ]
+        },
+        {
+          "id": 9,
+          "title": "influxdb up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"influxdb\"}", "refId": "A" } ]
+        },
+        { "id": 10, "type": "row", "title": "Storage / Freshness", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
+        {
+          "id": 11,
+          "title": "influxdb write / query rate",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 15 },
+          "targets": [
+            { "expr": "rate(influxdb3_write_lines_total[5m])", "refId": "A", "legendFormat": "write lines/s" },
+            { "expr": "rate(influxdb_iox_query_log_end2end_duration_seconds_count[5m])", "refId": "B", "legendFormat": "query/s" }
+          ]
+        },
+        {
+          "id": 12,
+          "title": "sensor last-seen age (s)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 15 },
+          "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 300 }, { "color": "red", "value": 600 } ] } } },
+          "targets": [ { "expr": "time() - gikview_sensor_last_seen_seconds", "refId": "A", "legendFormat": "{{`{{room_id}}`}}" } ]
+        },
+        { "id": 13, "type": "row", "title": "Egress — Edge Gateway → DynamoDB", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 } },
+        {
+          "id": 14,
+          "title": "edge-gateway up",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 22 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } },
+          "targets": [ { "expr": "up{job=\"edge-gateway\"}", "refId": "A" } ]
+        },
+        {
+          "id": 15,
+          "title": "DynamoDB PutItem errors (10m)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 22 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "sum(increase(edge_gateway_dynamodb_putitem_total{result=\"error\"}[10m]))", "refId": "A" } ]
+        },
+        {
+          "id": 16,
+          "title": "DynamoDB PutItem success (10m)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 22 },
+          "targets": [ { "expr": "sum(increase(edge_gateway_dynamodb_putitem_total{result=\"success\"}[10m]))", "refId": "A" } ]
+        }
+      ]
+    }

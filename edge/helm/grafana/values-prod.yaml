@@ -1,0 +1,13 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s2
+
+# prod Cloudflare Tunnel public hostname 과 정확히 일치.
+rootUrl: "https://grafana.gikview.org/"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "300m"
+    memory: "512Mi"
