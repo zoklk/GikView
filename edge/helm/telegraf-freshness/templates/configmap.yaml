@@ -20,7 +20,8 @@ data:
       urls    = ["${INFLUXDB_URL}/api/v3/query_sql"]
       method  = "POST"
       headers = {Authorization = "Bearer ${INFLUXDB_TOKEN}", Content-Type = "application/json"}
-      body    = '{"db":"{{ .Values.influxdb.database }}","q":"SELECT room_id, to_unixtime(max(time)) AS last_seen_seconds FROM occupancy GROUP BY room_id","format":"json"}'
+      # WHERE time 범위로 스캔 parquet 수를 묶음 — InfluxDB 3 Core 파일 한도(기본 432) 초과 500 방지. Core 는 compaction 없어 파일이 무한 누적되므로 풀스캔 금지.
+      body    = '''{"db":"{{ .Values.influxdb.database }}","q":"SELECT room_id, to_unixtime(max(time)) AS last_seen_seconds FROM occupancy WHERE time > now() - interval '{{ .Values.config.freshnessWindow }}' GROUP BY room_id","format":"json"}'''
       data_format = "json_v2"
 
       [[inputs.http.json_v2]]

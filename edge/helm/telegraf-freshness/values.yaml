@@ -13,6 +13,8 @@ config:
   configMapName: telegraf-freshness-config
   mountPath: /etc/telegraf
   queryInterval: "30s"
+  # InfluxDB 3 Core 파일 한도(432) 회피용 스캔 윈도. 이 기간보다 오래 조용한 방은 메트릭에서 사라짐 → "계열 부재 = stale" 로 알림.
+  freshnessWindow: "6 hours"
 
 influxdb:
   url: ""
