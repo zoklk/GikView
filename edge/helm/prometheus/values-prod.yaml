@@ -1,9 +1,9 @@
 nodeSelector:
   kubernetes.io/hostname: e-s2
 
-# 운영자: e-s1 내부 IP:2381 (etcd-expose-metrics 선행). 비우면 etcd job 미생성.
+# e-s1 control-plane etcd listen-metrics-urls(http://192.168.0.101:2381) — scheme http·무인증.
 etcd:
-  target: ""
+  target: "192.168.0.101:2381"
 
 persistence:
   storageClassName: local-storage

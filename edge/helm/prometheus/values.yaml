@@ -14,6 +14,11 @@ serviceAccountName: prometheus
 config:
   configMapName: prometheus-config
   mountPath: /etc/prometheus
+
+# InfluxDB /metrics scrape 용 admin token. monitoring NS 사전 생성(telegraf-freshness 와 공용).
+influxdbTokenSecret:
+  name: influxdb-admin-token
+  mountPath: /etc/prometheus/secrets/influxdb
 rules:
   configMapName: prometheus-rules
   mountPath: /etc/prometheus/rules

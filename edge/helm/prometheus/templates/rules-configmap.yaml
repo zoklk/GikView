@@ -34,7 +34,7 @@ data:
               summary: "cert {{`{{ $labels.name }}`}} 7일 내 만료"
 
           - alert: EdgeGatewayAWSFailure
-            expr: increase(edge_gateway_dynamodb_putitem_failures_total[10m]) > 0 or increase(edge_gateway_sts_refresh_failures_total[10m]) > 0
+            expr: sum(increase(edge_gateway_dynamodb_putitem_total{result="error"}[10m])) > 0 or sum(increase(edge_gateway_sts_refresh_total{result="error"}[10m])) > 0
             labels:
               severity: critical
             annotations:
@@ -64,8 +64,10 @@ data:
             annotations:
               summary: "node {{`{{ $labels.instance }}`}} node-exporter 스크랩 불가"
 
+          # pod 별 스크랩(headless) 후 노드 합산. authorization_deny 는 노드별 단조 카운터 →
+          # sum(increase()) 가 클러스터 전체 신규 deny. node 재시작 reset 은 increase 가 보정.
           - alert: EMQXACLDenySpike
-            expr: increase(emqx_acl_deny_count[10m]) > 0
+            expr: sum(increase(emqx_authorization_deny[10m])) > 0
             labels:
               severity: warning
             annotations:

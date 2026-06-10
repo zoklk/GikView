@@ -66,10 +66,16 @@ spec:
               readOnly: true
             - name: data
               mountPath: /prometheus
+            - name: influxdb-token
+              mountPath: {{ .Values.influxdbTokenSecret.mountPath }}
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: {{ .Values.config.configMapName }}
+        - name: influxdb-token
+          secret:
+            secretName: {{ .Values.influxdbTokenSecret.name }}
         - name: rules
           configMap:
             name: {{ .Values.rules.configMapName }}
