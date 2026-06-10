@@ -10,6 +10,13 @@ data:
     groups:
       - name: gikview-visibility
         rules:
+          - alert: Watchdog
+            expr: vector(1)
+            labels:
+              severity: none
+            annotations:
+              summary: "알림 파이프 정상 (하트비트) — 24h마다 1회"
+
           - alert: SensorNoData
             expr: time() - gikview_sensor_last_seen_seconds > 600
             for: 1m
