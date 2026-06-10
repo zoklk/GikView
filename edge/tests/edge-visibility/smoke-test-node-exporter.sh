@@ -11,7 +11,6 @@
 set -euo pipefail
 NS="${NAMESPACE:?NAMESPACE env not injected by runtime}"
 SVC="${SERVICE:-node-exporter}"
-LOCAL_PORT="19100"
 
 # ── 1. DaemonSet 스케줄 == 노드 수 ────────────────────────────────────────────
 DS_JSON=$(kubectl get ds -n "$NS" "$SVC" -o json 2>/dev/null || true)
@@ -44,23 +43,26 @@ POD=$(kubectl get pod -n "$NS" --field-selector=status.phase=Running -o name 2>/
   exit 1
 }
 
-kubectl port-forward -n "$NS" "pod/$POD" "${LOCAL_PORT}:9100" >/dev/null 2>&1 &
-PF_PID=$!
-trap "kill $PF_PID 2>/dev/null || true" EXIT
-sleep 2
-
-RETRIES=6
+# ── 2. pod 내부 loopback 으로 /metrics 스크레이프 ─────────────────────────────
+# 호스트 IP 직접 curl 은 클러스터 밖(harness 호스트) 경로 → 큰 응답이 MTU 절단되어
+# go_* 까지만 도착하고 끊김(broken pipe). node-exporter 는 hostNetwork 라 pod 내부
+# 127.0.0.1:9100 이 곧 노드 :9100 이며, loopback(MTU 65536)은 전체 본문을 받는다.
+RETRIES=18
 INTERVAL=5
-BODY=""
+OK=0
 for i in $(seq 1 $RETRIES); do
-  BODY=$(curl -sf "http://127.0.0.1:${LOCAL_PORT}/metrics" 2>/dev/null || true)
-  [ -n "$BODY" ] && break
-  echo "attempt $i/$RETRIES: /metrics not ready, waiting ${INTERVAL}s..."
+  # pod 내부에서 바로 grep: 큰 본문을 셸로 안 가져옴(파이프 첫 매치서 닫힘) → 안정적.
+  if kubectl exec -n "$NS" "$POD" -- /bin/sh -c \
+       'wget -qO- http://127.0.0.1:9100/metrics | grep -q node_cpu_seconds_total' 2>/dev/null; then
+    OK=1
+    break
+  fi
+  echo "attempt $i/$RETRIES: node_* metrics not ready, waiting ${INTERVAL}s..."
   sleep $INTERVAL
 done
-echo "$BODY" | grep -q "node_cpu_seconds_total" || {
+[ "$OK" = 1 ] || {
   echo "FAIL: metrics: /metrics missing node_cpu_seconds_total"
-  echo "  actual: $(echo "$BODY" | head -c 300)"
+  echo "  actual: $(kubectl exec -n "$NS" "$POD" -- /bin/sh -c 'wget -qO- http://127.0.0.1:9100/metrics 2>/dev/null | head -c 300' 2>/dev/null)"
   exit 1
 }
 
