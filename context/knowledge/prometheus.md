@@ -32,11 +32,11 @@ rule_files:
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ["alertmanager.gikview.svc:9093"]
+        - targets: ["alertmanager.monitoring.svc:9093"]
 
 scrape_configs:
   - job_name: node-exporter        # DaemonSet, 3노드 (node-exporter.md)
-    kubernetes_sd_configs: [{ role: endpoints, namespaces: { names: [gikview] } }]
+    kubernetes_sd_configs: [{ role: endpoints, namespaces: { names: [monitoring] } }]
     relabel_configs:               # node-exporter endpoints만 필터
       - source_labels: [__meta_kubernetes_service_name]
         regex: node-exporter
@@ -45,6 +45,9 @@ scrape_configs:
   - job_name: influxdb             # 네이티브 /metrics (influxdb.md)
     static_configs: [{ targets: ["influxdb.gikview.svc:8181"] }]
     metrics_path: /metrics
+    authorization:                 # influxdb-admin-token Bearer — 무인증 시 401
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/influxdb/token
 
   - job_name: emqx                 # /api/v5/prometheus/stats (emqx.md 참조, 인증 확인)
     static_configs: [{ targets: ["emqx-dashboard.gikview.svc:18083"] }]
@@ -54,7 +57,7 @@ scrape_configs:
     static_configs: [{ targets: ["cert-manager.gikview.svc:9402"] }]
 
   - job_name: telegraf-freshness   # SQL 브릿지 prometheus_client (telegraf.md, visibility.md 결정 3)
-    static_configs: [{ targets: ["telegraf-freshness.gikview.svc:9273"] }]
+    static_configs: [{ targets: ["telegraf-freshness.monitoring.svc:9273"] }]
 
   - job_name: edge-gateway         # STS/PutItem 카운터 자체 노출 :9101/metrics (visibility.md 결정 6)
     static_configs: [{ targets: ["edge-gateway.gikview.svc:9101"] }]

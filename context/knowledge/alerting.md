@@ -66,8 +66,8 @@ groups:
         labels: { severity: warning }
 
       - alert: EdgeGatewayAWSFailure          # 결정 6 — STS/PutItem 실패
-        expr: increase(edge_gateway_dynamodb_putitem_failures_total[10m]) > 0
-              or increase(edge_gateway_sts_refresh_failures_total[10m]) > 0
+        expr: increase(edge_gateway_dynamodb_putitem_total{result="error"}[10m]) > 0
+              or increase(edge_gateway_sts_refresh_total{result="error"}[10m]) > 0
         labels: { severity: critical }
 
       - alert: InfluxDiskHigh                 # 결정 4 — SSD 용량
@@ -86,7 +86,7 @@ groups:
         labels: { severity: critical }
 
       - alert: EMQXACLDenySpike               # 결정 6 — 위조/부트스트랩 연결 시도
-        expr: increase(emqx_acl_deny_count[10m]) > 0
+        expr: sum(increase(emqx_authorization_deny[10m])) > 0   # headless pod SD → 노드별 카운터 합산
         labels: { severity: warning }
 ```
 
