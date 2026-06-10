@@ -11,6 +11,12 @@ metadata:
 spec:
   serviceName: {{ .Chart.Name }}-headless
   replicas: {{ .Values.replicaCount }}
+  # 무중단 롤: 한 파드씩(RollingUpdate) + Ready 후 minReadySeconds 만큼 더 대기해
+  # 클러스터 정착·클라이언트 재연결 안정화 후 다음 파드 진행. 동시 재시작으로 인한
+  # 재연결 SUBSCRIBE 유실(소비자 구독 끊김) 방지.
+  updateStrategy:
+    type: RollingUpdate
+  minReadySeconds: {{ .Values.minReadySeconds | default 30 }}
   selector:
     matchLabels:
       {{- include "emqx.selectorLabels" . | nindent 6 }}
@@ -50,13 +56,15 @@ spec:
             - name: ekka
               containerPort: {{ .Values.service.ports.ekka }}
               protocol: TCP
-          # Dashboard binds to loopback; kubelet probes pod IP, so probe mqtts instead.
+          # tcpSocket(mqtts) 는 포트만 열리면 Ready 라, 클러스터 미형성 상태에서 롤이 진행돼
+          # 재연결 클라이언트의 SUBSCRIBE 가 유실됨(소비자 구독 끊김 → 적재 조용히 멎음).
+          # 노드가 실제 running 일 때만 Ready 판정하도록 emqx ctl status(기동 시 exit 0)로 게이팅.
           readinessProbe:
-            tcpSocket:
-              port: mqtts
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            timeoutSeconds: 3
+            exec:
+              command: ["emqx", "ctl", "status"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
           env:
             - name: POD_NAME
