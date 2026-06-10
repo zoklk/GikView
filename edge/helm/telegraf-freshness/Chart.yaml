@@ -1,0 +1,5 @@
+apiVersion: v2
+name: telegraf-freshness
+version: 0.1.0
+appVersion: "1.38-alpine"
+description: Telegraf sensor-freshness bridge — InfluxDB 3 SQL (max time per room) to prometheus_client gauge

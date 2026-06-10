@@ -1,0 +1,53 @@
+replicaCount: 1
+
+image:
+  repository: telegraf
+  tag: "1.38-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9273
+
+config:
+  configMapName: telegraf-freshness-config
+  mountPath: /etc/telegraf
+  queryInterval: "30s"
+
+influxdb:
+  url: ""
+  database: gikview
+
+influxdbTokenSecret:
+  name: influxdb-admin-token
+  key: token
+
+resources:
+  requests:
+    cpu: "20m"
+    memory: "64Mi"
+  limits:
+    cpu: "100m"
+    memory: "128Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}
