@@ -1,0 +1,37 @@
+image:
+  repository: prom/node-exporter
+  tag: "v1.11.1"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9100
+
+# control-plane(e-s1)에도 pod 가 떠야 etcd 호스트 노드의 disk/iowait 메트릭이 수집됨.
+# 누락 시 e-s1 메트릭이 통째로 빔(에러 없이). node-exporter.md "control-plane 노드 누락".
+tolerations:
+  - operator: Exists
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "32Mi"
+  limits:
+    cpu: "500m"
+    memory: "64Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault

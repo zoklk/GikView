@@ -105,6 +105,11 @@ void setup() {
   switch (m) {
     case MODE_BOOTSTRAP:
       Serial.println("[mode] BOOTSTRAP");
+      // 센서 파라미터 설정은 cert TLS 전 (heap 깨끗할 때) 수행. UART 만 쓰고
+      // 네트워크/cert 불필요. 직후 sensor_release() 로 SoftwareSerial 버퍼를
+      // 반납해야 X5C 2회 핸드셰이크(heap 빡셈)에서 fragmentation OOM 안 남.
+      provision_sensor();
+      sensor_release();
       if (provision_cert(false)) {
         Serial.println("[boot] complete, rebooting...");
         delay(2000);

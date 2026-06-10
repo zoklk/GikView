@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telegraf-freshness.labels" . | nindent 4 }}
+  annotations:
+    configmap.reloader.stakater.com/reload: {{ .Values.config.configMapName | quote }}
+    secret.reloader.stakater.com/reload: {{ .Values.influxdbTokenSecret.name | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "telegraf-freshness.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "telegraf-freshness.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: telegraf-freshness
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: INFLUXDB_URL
+              value: {{ .Values.influxdb.url | quote }}
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.influxdbTokenSecret.name }}
+                  key: {{ .Values.influxdbTokenSecret.key }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            # interval(30s)보다 길게 — 첫 gather/flush 전 Ready 처리 방지(internal_* 노출 보장)
+            initialDelaySeconds: 35
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: {{ .Values.config.mountPath }}
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.config.configMapName }}

@@ -1,0 +1,3 @@
+# 외부 런타임 의존성 없음.
+# authorizer 는 opaque access_token 을 userinfo HTTP 호출(urllib, stdlib)로 검증.
+# handler/broadcast 의 boto3 는 Lambda 런타임 내장.

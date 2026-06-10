@@ -11,7 +11,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/zoklk/GikView.git
-    targetRevision: dev
+    targetRevision: main
     path: edge/helm/step-ca
     helm:
       releaseName: step-ca

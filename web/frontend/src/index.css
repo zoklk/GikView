@@ -1,0 +1,96 @@
+/* Pretendard: 한글 가독성 + 세련된 본문 폰트 (dynamic subset) */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css");
+@import "tailwindcss";
+
+/* Tailwind v4 기본 dark: 는 prefers-color-scheme(media). 우리는 .dark 클래스 토글로
+   제어하므로 클래스 전략으로 변경 → 모든 dark:* 유틸이 토글 따라감 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── 디자인 토큰 ──────────────────────────────────────────── */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+
+  /* 브랜드 */
+  --color-brand: #1f7a8c;
+  --color-brand-soft: #2ebfa5;
+
+  /* 재실 상태 — 톤다운 파스텔 (단일 진실원천은 theme.ts) */
+  --color-free: #34c9a0;
+  --color-occupied: #f08489;
+  --color-unknown: #9fb0c3;
+}
+
+/* 테마별 표면/글래스 변수 (다크 토글로 .dark 전환) */
+:root {
+  --surface-from: #fafcfe;
+  --surface-to: #eef3f8;
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-ring: rgba(31, 122, 140, 0.08);
+  --ink: #1e293b;
+}
+
+.dark {
+  --surface-from: #0b1220;
+  --surface-to: #0f1a2e;
+  --glass-bg: rgba(30, 41, 59, 0.55);
+  --glass-border: rgba(148, 163, 184, 0.18);
+  --glass-ring: rgba(46, 191, 165, 0.1);
+  --ink: #f8fafc;
+}
+
+/* ── 베이스 ──────────────────────────────────────────────── */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--surface-from);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 화면 표면: 그라데이션 배경. .dark 와 같은 요소에 붙여야 다크 변수 전체 적용
+   (body 에 두면 .dark div 바깥이라 하단 미적용 버그 발생) */
+@utility app-surface {
+  color: var(--ink);
+  background:
+    radial-gradient(
+      90rem 60rem at 85% -10%,
+      var(--glass-ring),
+      transparent 60%
+    ),
+    linear-gradient(160deg, var(--surface-from), var(--surface-to));
+  transition: background 0.4s ease, color 0.3s ease;
+}
+
+/* 글래스 표면 유틸 */
+@utility glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--glass-border);
+}
+
+/* 가는 커스텀 스크롤바 (모바일 가로 스크롤 뷰) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+*::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

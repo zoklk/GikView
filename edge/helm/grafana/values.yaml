@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: grafana/grafana
+  tag: "13.0.2"
+  pullPolicy: IfNotPresent
+
+# ClusterIP 내부 전용 — NodePort/Ingress 직접 노출 금지(Access 우회·헤더 위조 방지). 진입점은 Cloudflare Tunnel 뿐.
+service:
+  type: ClusterIP
+  port: 3000
+
+# Cloudflare Tunnel public hostname 과 정확히 일치해야 함(불일치 시 redirect/asset 깨짐). 환경별 override.
+rootUrl: "http://localhost:3000/"
+
+adminSecret:
+  name: grafana-admin
+  userKey: admin-user
+  passwordKey: admin-password
+  mountPath: /etc/grafana/secrets
+
+datasource:
+  configMapName: grafana-datasources
+  prometheusUrl: "http://prometheus.monitoring.svc:9090"
+
+dashboards:
+  configMapName: grafana-dashboards
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "128Mi"
+  limits:
+    cpu: "300m"
+    memory: "512Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 472
+  runAsGroup: 472
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}

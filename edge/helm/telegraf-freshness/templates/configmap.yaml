@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.config.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "telegraf-freshness.labels" . | nindent 4 }}
+data:
+  telegraf.conf: |
+    [agent]
+      interval = "{{ .Values.config.queryInterval }}"
+      flush_interval = "{{ .Values.config.queryInterval }}"
+      omit_hostname = true
+
+    # 자체 계측 — http 입력(InfluxDB 질의) 성공/실패를 internal_gather_errors 로 노출. smoke 가 검증.
+    [[inputs.internal]]
+
+    # InfluxDB 3 Core SQL: 방별 마지막 데이터 시각(epoch seconds).
+    [[inputs.http]]
+      urls    = ["${INFLUXDB_URL}/api/v3/query_sql"]
+      method  = "POST"
+      headers = {Authorization = "Bearer ${INFLUXDB_TOKEN}", Content-Type = "application/json"}
+      body    = '{"db":"{{ .Values.influxdb.database }}","q":"SELECT room_id, to_unixtime(max(time)) AS last_seen_seconds FROM occupancy GROUP BY room_id","format":"json"}'
+      data_format = "json_v2"
+
+      [[inputs.http.json_v2]]
+        measurement_name = "gikview_sensor"
+        [[inputs.http.json_v2.object]]
+          path = "@this"
+          tags = ["room_id"]
+
+    # gikview_sensor_last_seen_seconds{room_id} gauge + internal_* 노출. Prometheus 가 스크랩.
+    [[outputs.prometheus_client]]
+      listen         = ":{{ .Values.service.port }}"
+      metric_version = 2

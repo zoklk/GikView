@@ -1,0 +1,8 @@
+# DaemonSet — nodeSelector 없이 전 노드 배포(환경별 노드 차이 없음). 리소스만 분리.
+resources:
+  requests:
+    cpu: "200m"
+    memory: "64Mi"
+  limits:
+    cpu: "500m"
+    memory: "128Mi"

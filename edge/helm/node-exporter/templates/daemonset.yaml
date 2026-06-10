@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "node-exporter.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "node-exporter.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "node-exporter.labels" . | nindent 8 }}
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      containers:
+        - name: node-exporter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          args:
+            - "--path.rootfs=/host/root"
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+            # 가상 fs(overlay/tmpfs/k3s 컨테이너 마운트) 제외, 실제 SSD(/mnt/ssd 계열)는 유지 — 용량 알림 출처.
+            - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/kubelet|var/lib/rancher|run/k3s)($|/)"
+            - "--collector.filesystem.fs-types-exclude=^(overlay|tmpfs|squashfs|nsfs|devtmpfs|fuse.*)$"
+            - "--web.listen-address=:{{ .Values.service.port }}"
+          # hostNetwork:true 라 컨테이너가 노드 netns 의 :9100 을 직접 bind 한다.
+          # hostPort 는 중복이며, helm uninstall→install 시 terminating 구 pod 의
+          # hostPort 점유와 신 pod bind 가 충돌해 go_*-only 윈도우를 만든다 → 제거.
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # /metrics 가 실제로 응답해야 Ready → kubectl_wait 가 신 pod bind 완료까지 대기.
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /

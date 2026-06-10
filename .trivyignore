@@ -22,3 +22,12 @@ KSV-0114
 # (tls_key path, json_time_key, processor key/result_key) are TOML field names.
 KSV-0109
 KSV-01010
+
+# node-exporter는 노드 메트릭 수집을 위해 host 네임스페이스 접근이 본질적으로 필요.
+# KSV-0009 hostNetwork / KSV-0010 hostPID / KSV-0023 hostPath volume
+# KSV-0024 hostPort / KSV-0121 host volumes {/, /proc, /sys}
+AVD-KSV-0009
+AVD-KSV-0010
+AVD-KSV-0023
+AVD-KSV-0024
+AVD-KSV-0121

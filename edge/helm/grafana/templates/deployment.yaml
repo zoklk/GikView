@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+  annotations:
+    configmap.reloader.stakater.com/reload: {{ printf "%s,%s" .Values.datasource.configMapName .Values.dashboards.configMapName | quote }}
+    secret.reloader.stakater.com/reload: {{ .Values.adminSecret.name | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "grafana.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "grafana.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: grafana
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.rootUrl | quote }}
+            - name: GF_SECURITY_ADMIN_USER__FILE
+              value: "{{ .Values.adminSecret.mountPath }}/{{ .Values.adminSecret.userKey }}"
+            - name: GF_SECURITY_ADMIN_PASSWORD__FILE
+              value: "{{ .Values.adminSecret.mountPath }}/{{ .Values.adminSecret.passwordKey }}"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/grafana
+            - name: tmp
+              mountPath: /tmp
+            - name: admin
+              mountPath: {{ .Values.adminSecret.mountPath }}
+              readOnly: true
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: dashboards-json
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+      volumes:
+        - name: storage
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: admin
+          secret:
+            secretName: {{ .Values.adminSecret.name }}
+            items:
+              - key: {{ .Values.adminSecret.userKey }}
+                path: {{ .Values.adminSecret.userKey }}
+              - key: {{ .Values.adminSecret.passwordKey }}
+                path: {{ .Values.adminSecret.passwordKey }}
+        - name: datasources
+          configMap:
+            name: {{ .Values.datasource.configMapName }}
+        - name: dashboards-provider
+          configMap:
+            name: {{ .Values.dashboards.configMapName }}
+            items:
+              - key: provider.yaml
+                path: provider.yaml
+        - name: dashboards-json
+          configMap:
+            name: {{ .Values.dashboards.configMapName }}
+            items:
+              - key: cluster-resources.json
+                path: cluster-resources.json
+              - key: data-pipeline.json
+                path: data-pipeline.json

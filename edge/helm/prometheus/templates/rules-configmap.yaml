@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.rules.configMapName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+data:
+  gikview-visibility.yaml: |
+    groups:
+      - name: gikview-visibility
+        rules:
+          - alert: Watchdog
+            expr: vector(1)
+            labels:
+              severity: none
+            annotations:
+              summary: "알림 파이프 정상 (하트비트) — 24h마다 1회"
+
+          - alert: SensorNoData
+            expr: time() - gikview_sensor_last_seen_seconds > 600
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "room {{`{{ $labels.room_id }}`}} 10분+ 무데이터"
+
+          - alert: CertExpirySoon
+            expr: (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 7
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "cert {{`{{ $labels.name }}`}} 7일 내 만료"
+
+          - alert: EdgeGatewayAWSFailure
+            expr: sum(increase(edge_gateway_dynamodb_putitem_total{result="error"}[10m])) > 0 or sum(increase(edge_gateway_sts_refresh_total{result="error"}[10m])) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "edge-gateway AWS(STS/DynamoDB) 실패 — DynamoDB stale 위험"
+
+          - alert: InfluxDiskHigh
+            expr: (1 - node_filesystem_avail_bytes{mountpoint=~"/mnt/ssd.*"} / node_filesystem_size_bytes) > 0.85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "InfluxDB SSD 사용률 85%+ ({{`{{ $labels.mountpoint }}`}})"
+
+          - alert: EtcdFsyncSlow
+            expr: histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) > 0.5
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "etcd WAL fsync p99 > 0.5s (260420 cascading-failure 재발 징후)"
+
+          - alert: NodeDown
+            expr: up{job="node-exporter"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "node {{`{{ $labels.instance }}`}} node-exporter 스크랩 불가"
+
+          # pod 별 스크랩(headless) 후 노드 합산. authorization_deny 는 노드별 단조 카운터 →
+          # sum(increase()) 가 클러스터 전체 신규 deny. node 재시작 reset 은 increase 가 보정.
+          - alert: EMQXACLDenySpike
+            expr: sum(increase(emqx_authorization_deny[10m])) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "EMQX ACL deny 발생 — 위조/부트스트랩 연결 시도 의심"

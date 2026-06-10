@@ -1,7 +1,7 @@
 # cilium-l2 — 운영 지식 메모
 
 > **레거시.** 현재 어떤 `context/phases/*.md` 도 이 문서를 `**references**` 로 참조하지 않으며,
-> 여기 등장하는 `emqx-lb` LoadBalancer 서비스는 현 messaging phase 구성(EMQX NodePort + 공유기
+> 여기 등장하는 `emqx-lb` LoadBalancer 서비스는 현 edge-messaging phase 구성(EMQX NodePort + 공유기
 > 포트포워딩)에 없다. 보존용으로만 둔다 — 새 작업의 근거로 쓰지 말 것.
 
 ---

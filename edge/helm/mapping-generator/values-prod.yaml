@@ -2,4 +2,13 @@ nodeSelector:
   kubernetes.io/hostname: e-s1
 
 deviceRoomMapping:
-  device-aaaaaa: room-a-9-9
+  device-aaaaaa: room_a_9_9
+  device-750c86: room_a_1_lounge
+  device-9d8165: room_a_1_community
+  device-e00a19: room_a_2_lounge
+  device-5bbdee: room_a_3_lounge1
+  device-0fa2f9: room_a_3_lounge2
+  device-2d427a: room_a_3_reading
+  device-496d89: room_b_1_store
+  device-865b0b: room_b_2_meeting
+  device-d9f113: room_b_3_meeting

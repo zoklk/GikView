@@ -1,0 +1,5 @@
+apiVersion: v2
+name: node-exporter
+version: 0.1.0
+appVersion: "v1.11.1"
+description: prom/node-exporter DaemonSet (all nodes incl control-plane) for node-level CPU/disk/iowait/filesystem metrics

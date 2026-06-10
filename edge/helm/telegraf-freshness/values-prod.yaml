@@ -1,0 +1,13 @@
+nodeSelector:
+  kubernetes.io/hostname: e-s2
+
+influxdb:
+  url: "http://influxdb.gikview.svc.cluster.local:8181"
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "100m"
+    memory: "128Mi"

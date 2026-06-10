@@ -66,5 +66,5 @@ failover(worker1 장애 시 worker2로 전환)가 무의미해짐.
 | `resources.requests.memory` | `384Mi` | `384Mi` |
 | `resources.limits.memory` | `512Mi` | `512Mi` |
 | `nodePortService.nodePorts.mqtt` | `31883` | `31883` |
-| `nodePortService.nodePorts.mqtts` | `31884` | `31884` (NodePort 번호. 공유기는 외부포트 8883 → e-s2:31884, 8884 → e-s3:31884 로 포워딩 — `context/phases/security.md` 참조) |
-| `emqx-server-tls` Certificate `ipAddresses` (mTLS 서버 cert SAN) | dev EMQX 노드 IP들 | prod e-s2/e-s3 IP — 실제값의 정본은 `context/phases/security.md` 의 emqx 서비스 (여기서 다시 적으면 stale 위험) |
+| `nodePortService.nodePorts.mqtts` | `31884` | `31884` (NodePort 번호. 공유기는 외부포트 8883 → e-s2:31884, 8884 → e-s3:31884 로 포워딩 — `context/phases/edge-security.md` 참조) |
+| `emqx-server-tls` Certificate `ipAddresses` (mTLS 서버 cert SAN) | dev EMQX 노드 IP들 | prod e-s2/e-s3 IP — 실제값의 정본은 `context/phases/edge-security.md` 의 emqx 서비스 (여기서 다시 적으면 stale 위험) |

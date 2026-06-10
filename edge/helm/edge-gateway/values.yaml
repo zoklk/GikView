@@ -22,6 +22,10 @@ mapping:
   configMapName: device-room-mapping
   mountPath: /mapping
 
+# /metrics 노출 포트(prometheus 스크랩: edge-gateway.svc:9101). ClusterIP 내부 전용.
+service:
+  port: 9101
+
 emqx:
   brokerUrl: ""
   shareTopic: "$share/edge-gw/sensors/+/occupancy"
@@ -30,8 +34,8 @@ influxdb:
   url: ""
   bucket: gikview
 
-dynamodb:
-  table: gikview-rooms
+# dynamodb.tables is env-specific (fan-out targets) — defined only in
+# values-<env>.yaml, not here. Lists replace (not merge) across value files.
 
 iamRolesAnywhere:
   trustAnchorArn: ""
