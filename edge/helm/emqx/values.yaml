@@ -1,5 +1,8 @@
 replicaCount: 2
 
+# 무중단 롤 게이팅: 파드 Ready 후 이만큼(초) 더 대기 뒤 다음 파드 롤. 클러스터 정착·클라 재연결 안정화.
+minReadySeconds: 30
+
 image:
   repository: emqx/emqx
   tag: "5.8.6"

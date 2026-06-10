@@ -72,3 +72,25 @@ data:
               severity: warning
             annotations:
               summary: "EMQX ACL deny 발생 — 위조/부트스트랩 연결 시도 의심"
+
+          # broker 재시작 후 소비자(telegraf/edge-gateway)가 재구독 못 하면 센서 publish 가
+          # 구독자 없어 폐기됨 → connection 수는 정상인데 적재만 조용히 멎는 사각지대.
+          # messages_dropped 는 노드별 단조 카운터 → sum(rate()) 가 클러스터 전체 폐기율.
+          - alert: EMQXMessagesDropped
+            expr: sum(rate(emqx_messages_dropped[5m])) > 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "EMQX 메시지 폐기 중 — 구독자 없는 publish 의심(소비자 구독 끊김)"
+
+          # 센서 publish 유입 0 = 상류(센서→EMQX) 끊김. freshness(SensorNoData)보다 빠르고
+          # 직접적. up{job=emqx}==0(스크랩 불가)은 별도 NodeDown 류로 커버 — 여기선 broker 는
+          # 살아있는데 유입만 0 인 경우를 잡음.
+          - alert: EMQXNoIngress
+            expr: sum(rate(emqx_messages_received[10m])) == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "EMQX publish 유입 0 — 센서 적재 중단(상류 끊김)"
