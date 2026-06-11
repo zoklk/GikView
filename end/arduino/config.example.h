@@ -47,9 +47,19 @@ constexpr uint32_t RENEW_BEFORE_SEC       = 604800;     // 7d 전부터 갱신
 constexpr uint32_t PUBLISH_INTERVAL_MS    = 5000;
 constexpr uint32_t RENEW_CHECK_INTV_MS    = 3600000;    // 1h 간격 검사
 
+// ── WiFi BSSID 회전 / 회복 watchdog (wifi_session.cpp, arduino.ino) ──────
+// 동일 SSID 다중 AP 환경에서 dead-upstream AP (associate 되나 상위망 없음) 를
+// 걸러내고 회복 불능(heap fragmentation / dead AP)을 reboot 로 푸는 상한들.
+constexpr uint32_t WIFI_ASSOC_TIMEOUT_MS  = 8000;       // BSSID 1개 associate 상한
+constexpr uint32_t WIFI_PROBE_TIMEOUT_MS  = 3000;       // EMQX TCP probe 상한
+constexpr uint32_t WIFI_BACKOFF_REBOOT_MS = 30000;      // 전 BSSID 실패 후 reboot 전 backoff
+constexpr uint32_t MQTT_DOWN_REBOOT_MS    = 300000;     // mqtt 회복 실패 → soft reboot (5m)
+// reboot 전 [0, JITTER) 랜덤 추가 — 공유 EMQX 장애로 다수 기기가 동시 reboot →
+// 복구 순간 mTLS 핸드셰이크 동시 폭주(thundering herd) 를 위상 분산으로 완화.
+constexpr uint32_t WIFI_REBOOT_JITTER_MS  = 15000;
+
 // ── 진단 토글 (운영=0, 디버깅=1) ──────────────────────────────────────
 #define ENABLE_DIAG_STEPCA_PROBE 0   // step-ca /health 1회 probe
-#define ENABLE_DIAG_WIFI_SCAN    0   // 부팅 시 AP 스캔 + 로그
 // EMQX endpoint TLS 핸드셰이크 단독 시도. mqtt.connect 가 ssl/mqtt 에러를
 // state=-2 한 가지로 묶어버려 분리 진단용. 운영에선 핸드셰이크가 2배라
 // heap fragmentation 가속 → renew 직후 OOM 위험. 디버깅 때만 1.
