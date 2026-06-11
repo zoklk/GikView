@@ -10,6 +10,7 @@
 #include "stepca.h"
 #include "mqtt_session.h"
 #include "sensor.h"
+#include "wifi_session.h"
 
 #include <ESP8266WiFi.h>
 #include <LittleFS.h>
@@ -50,6 +51,9 @@ void setup() {
   Serial.begin(115200);
   delay(1500);
 
+  // reboot 지터 시드 — getChipId 가 기기별로 달라 동시 reboot 시 위상 분산.
+  randomSeed(ESP.getChipId() ^ micros());
+
   setup_sensor();
 
   Serial.printf("\n[init] heap=%d, reset=%s\n",
@@ -61,24 +65,15 @@ void setup() {
     return;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);
-  delay(200);
-
-#if ENABLE_DIAG_WIFI_SCAN
-  Serial.println("[wifi] scanning...");
-  int n = WiFi.scanNetworks();
-  Serial.printf("[wifi] %d AP found\n", n);
-  for (int i = 0; i < n; i++) {
-    Serial.printf("  %2d) %-32s RSSI=%d ch=%d enc=%d\n",
-                  i, WiFi.SSID(i).c_str(),
-                  WiFi.RSSI(i), WiFi.channel(i), WiFi.encryptionType(i));
+  // BSSID 회전 연결 — 같은 SSID 의 AP 들을 RSSI 순으로 시도하되 각자 EMQX TCP probe
+  // 로 상위망 도달성 검증. 강신호 dead AP (associate 되지만 인터넷 없음) 는 걸러내고
+  // 살아있는 BSSID 에 락. 무한 retry 대신 bounded — 전부 실패 시 backoff 후 reboot.
+  if (!wifi_connect_best()) {
+    Serial.println("[wifi] 연결 가능한 BSSID 없음 — backoff 후 reboot");
+    delay(WIFI_BACKOFF_REBOOT_MS + random(0, WIFI_REBOOT_JITTER_MS));
+    ESP.restart();
   }
-#endif
-
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.printf("\n[wifi] IP=%s, heap=%d\n",
+  Serial.printf("[wifi] connected IP=%s, heap=%d\n",
                 WiFi.localIP().toString().c_str(), ESP.getFreeHeap());
 
   // X.509 validity / JWT iat·nbf·exp 검증에 필요.
@@ -149,6 +144,26 @@ void loop() {
 
   static uint32_t last_pub = 0, last_chk = 0, last_log = 0;
   uint32_t now_ms = millis();
+
+  // 운영 reconnect watchdog — mqtt 가 MQTT_DOWN_REBOOT_MS 동안 회복 못 하면 soft
+  // reboot. 원인 무관 만능 회복: heap fragmentation 이면 clean heap 확보, dead-
+  // upstream AP 면 부팅 probe 가 걸러 다음 BSSID 회전 (RTC blacklist 는 soft reboot
+  // 생존). blacklist 는 부팅 probe 한 곳에서만 찍어 — heap 원인일 때 멀쩡한 BSSID 를
+  // 오죽이는 false positive 방지. renew teardown 중엔 current_cn() 이 비어 미발동.
+  // 상한은 config.h MQTT_DOWN_REBOOT_MS.
+  static uint32_t mqtt_down_since = 0;
+  if (mqtt_session_connected()) {
+    mqtt_down_since = 0;
+  } else if (current_cn()[0]) {
+    if (mqtt_down_since == 0) {
+      mqtt_down_since = now_ms ? now_ms : 1;
+    } else if (now_ms - mqtt_down_since > MQTT_DOWN_REBOOT_MS) {
+      Serial.printf("[loop] mqtt %lus 회복 실패 — soft reboot\n",
+                    (unsigned long)((now_ms - mqtt_down_since) / 1000));
+      delay(1000 + random(0, WIFI_REBOOT_JITTER_MS));
+      ESP.restart();
+    }
+  }
 
   if (now_ms - last_log > 30000) {
     Serial.printf("[loop] heap=%d cn=%s\n",
