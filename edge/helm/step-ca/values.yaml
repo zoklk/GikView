@@ -158,10 +158,23 @@ caJson:
     disableRenewal: false
   # X5C leaf template enforces the device-CN whitelist (OSS step-ca has no
   # per-provisioner policy). {{ }} are step-ca directives, not Helm.
-  x5cLeafTemplate: |-
+  # device-bootstrap: auth cert is the SHARED bootstrap leaf (CN=bootstrap), so
+  # it cannot be CN-bound to the requested device CN — whitelist is the control.
+  x5cBootstrapTemplate: |-
     {{- $wl := .allowedCNs -}}
     {{- if .Subject.CommonName }}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf "common name %q is not allowed (not in device whitelist)" .Subject.CommonName) }}{{- end }}{{- end -}}
     {{- range .SANs }}{{- if ne .Type "dns" }}{{ fail (printf "SAN type %q is not allowed (devices get DNS SANs only)" .Type) }}{{- end }}{{- if not (has .Value $wl) }}{{ fail (printf "SAN %q is not allowed (not in device whitelist)" .Value) }}{{- end }}{{- end -}}
+    {"subject":{{ toJson .Subject }},"sans":{{ toJson .SANs }},"keyUsage":["digitalSignature"],"extKeyUsage":["serverAuth","clientAuth"]}
+  # device-renewal: auth cert is the device's OWN per-device leaf (CN=device-XXXXXX).
+  # Bind the requested CN/SAN to the authenticating cert (.AuthorizationCrt) so a
+  # stolen device cert can only re-issue ITS OWN identity, not any whitelisted CN.
+  # Whitelist kept too (defense-in-depth: a decommissioned device cannot renew).
+  x5cRenewalTemplate: |-
+    {{- $self := .AuthorizationCrt.Subject.CommonName -}}
+    {{- $wl := .allowedCNs -}}
+    {{- if ne .Subject.CommonName $self }}{{ fail (printf "common name %q does not match authenticating certificate %q (renewal re-issues own identity only)" .Subject.CommonName $self) }}{{- end -}}
+    {{- if not (has .Subject.CommonName $wl) }}{{ fail (printf "common name %q is not allowed (not in device whitelist)" .Subject.CommonName) }}{{- end -}}
+    {{- range .SANs }}{{- if ne .Type "dns" }}{{ fail (printf "SAN type %q is not allowed (devices get DNS SANs only)" .Type) }}{{- end }}{{- if ne .Value $self }}{{ fail (printf "SAN %q does not match authenticating certificate %q" .Value $self) }}{{- end }}{{- end -}}
     {"subject":{{ toJson .Subject }},"sans":{{ toJson .SANs }},"keyUsage":["digitalSignature"],"extKeyUsage":["serverAuth","clientAuth"]}
   deviceBootstrapRoots: ""    # base64 -w0 of root_ca.crt, per env
   deviceRenewalRoots: ""      # base64 -w0 of intermediate_ca.crt, per env
