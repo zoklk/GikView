@@ -109,7 +109,8 @@ export const IsometricBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
           .dark svg path[mask] { fill: #64748B; }
           .dark svg path[fill="black"]:not([mask]) { fill: #F8FAFC; }
           svg path[fill="black"]:not([mask]) { transform-box: fill-box; transform-origin: center; transform: scale(1.3); }
-          svg rect[fill="#F5F5F5"] { fill: var(--surface-from); }
+          svg rect[fill="#F5F5F5"] { fill: transparent; }
+          .dark svg rect[fill="#F5F5F5"] { fill: var(--surface-from); }
           svg path[fill="white"] { fill: var(--surface-from); }
           svg path, svg rect { transition: fill 0.3s ease, stroke 0.3s ease, opacity 0.2s ease; }
         `}</style>

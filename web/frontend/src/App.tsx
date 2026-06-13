@@ -78,7 +78,7 @@ function App() {
           if (u && !u.expired) setUser(u);
         }
       } catch (e) {
-        console.error('❌ 인증 부트스트랩 실패:', e);
+        console.error('인증 부트스트랩 실패:', e);
       } finally {
         setAuthReady(true);
       }
@@ -137,14 +137,14 @@ function App() {
           try {
             fresh = await authService.signinSilent();
           } catch (e) {
-            console.error('❌ silent renew 실패:', e);
+            console.error('silent renew 실패:', e);
           }
         }
         if (closedByCleanup) return;                  // await 중 언마운트 레이스 가드
         if (fresh && !fresh.expired) {
           connect(fresh.access_token);
         } else {
-          console.warn('🔒 토큰 갱신 실패 → 로그인 필요');
+          console.warn('토큰 갱신 실패 → 로그인 필요');
           setUser(null);                              // 만료 무한 재연결 차단 → LoginPage 폴백
         }
       }, delay);
@@ -154,7 +154,6 @@ function App() {
       socket = new WebSocket(`${WS_BASE_URL}?token=${token}`);
 
       socket.onopen = () => {
-        console.log('✅ WebSocket 연결 수립');
         attempts = 0; // 연결 성공 시 backoff 리셋
         startHeartbeat(socket!);
         socket!.send(JSON.stringify({ action: 'getState' })); // 초기 상태 요청
@@ -164,16 +163,15 @@ function App() {
         try {
           handleMessage(JSON.parse(event.data) as WsMessage);
         } catch (error) {
-          console.error('❌ WebSocket 메시지 파싱 오류:', error);
+          console.error('WebSocket 메시지 파싱 오류:', error);
         }
       };
 
-      socket.onerror = (error) => console.error('❌ WebSocket 통신 오류:', error);
+      socket.onerror = (error) => console.error('WebSocket 통신 오류:', error);
 
       socket.onclose = () => {
         stopHeartbeat();
         if (!closedByCleanup) {
-          console.log('🔌 WebSocket 종료. 재연결 예약...');
           scheduleReconnect();
         }
       };
@@ -212,8 +210,11 @@ function App() {
 
   return (
     <div className={`app-surface relative h-dvh w-dvw overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
-      <Backdrop />
-      <header className="relative glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]">
+      <Backdrop grid={isDarkMode} />
+      <header
+        className="relative glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]"
+        style={isDarkMode ? undefined : { background: '#C3E0E1' }}
+      >
         <div className="flex justify-between items-center gap-3 px-4 md:px-7 py-2.5 md:py-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <a
@@ -258,9 +259,12 @@ function App() {
         </div>
       </header>
 
-      {/* 맵은 불투명 표면 위 → 백드롭 그리드/글로우가 벡터 뒤로 비쳐 뿌예지는 것 차단.
-          백드롭은 위 glass 헤더(반투명) 너머로 은은히 비쳐 로그인과 디자인 통일. */}
-      <main className="flex-1 w-full h-full relative z-10 overflow-hidden bg-[var(--surface-from)]">
+      {/* 라이트: 구조도(본문)=밝은 glass-bg, 헤더=surface-to(청회)로 색 교환 →
+          재실 상태색 돋보이게 + 헤더 대비. 다크: 본문=surface-from 불투명(원복). */}
+      <main
+        className="flex-1 w-full h-full relative z-10 overflow-hidden"
+        style={{ background: isDarkMode ? 'var(--surface-from)' : 'var(--glass-bg)' }}
+      >
         {isDesktop ? (
           <IntegratedBuilding rooms={rooms} isDarkMode={isDarkMode} />
         ) : (
