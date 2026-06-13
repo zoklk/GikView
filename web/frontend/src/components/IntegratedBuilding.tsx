@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { statusFill } from '../theme';
 import type { Room } from '../types/room';
 import structureSvg from '../assets/gikview-structure.svg?raw';
@@ -30,7 +30,7 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
     [],
   );
 
-  useEffect(() => {
+  const applyFills = useCallback(() => {
     const svgEl = ref.current?.querySelector('svg');
     if (!svgEl || rooms.length === 0) return;
 
@@ -51,6 +51,31 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
         });
     });
   }, [rooms, isDarkMode]);
+
+  // paint 전 fill 주입 → 기본 fill(투명=배경) 보이는 프레임 제거(첫 적용 flash 차단).
+  useLayoutEffect(() => {
+    applyFills();
+  }, [applyFills]);
+
+  // 탭 복귀: 숨김 중 paint 누락으로 stale raster(배경색) 잔존 시 강제 repaint.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      applyFills();
+      const c = ref.current;
+      if (c) {
+        c.style.opacity = '0.999';
+        void c.getBoundingClientRect();
+        c.style.opacity = '';
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onVisible);
+    };
+  }, [applyFills]);
 
   return (
     <div className="w-full h-full flex justify-center items-center p-2 md:p-3 overflow-hidden bg-transparent">

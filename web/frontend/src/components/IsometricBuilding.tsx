@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState } from 'react';
 import { statusFill } from '../theme';
 import type { Room } from '../types/room';
 import structureSvg from '../assets/gikview-structure.svg?raw';
@@ -53,7 +53,7 @@ export const IsometricBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
     return new XMLSerializer().serializeToString(svg);
   }, []);
 
-  useEffect(() => {
+  const applyFills = useCallback(() => {
     const svgEl = svgContainerRef.current?.querySelector('svg');
     if (!svgEl || rooms.length === 0) return;
     rooms.forEach((room) => {
@@ -73,6 +73,32 @@ export const IsometricBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
         });
     });
   }, [rooms, isDarkMode]);
+
+  // paint 전 fill 주입 → 기본 fill(투명=배경) 보이는 프레임 제거(첫 적용 flash 차단).
+  useLayoutEffect(() => {
+    applyFills();
+  }, [applyFills]);
+
+  // 모바일 탭 복귀: 숨김 중 paint 누락(Chrome/Safari)으로 stale raster(배경색) 잔존.
+  // 가시화 시 fill 재적용 + 컨테이너 opacity nudge 로 강제 repaint.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      applyFills();
+      const c = svgContainerRef.current;
+      if (c) {
+        c.style.opacity = '0.999';
+        void c.getBoundingClientRect();
+        c.style.opacity = '';
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pageshow', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onVisible);
+    };
+  }, [applyFills]);
 
   // 층 라벨(F1/F2/F3) 위치 계산용으로 렌더된 svg 의 top/height 측정.
   // svg 가 commit 직후 없을 수 있어 RO 로 재시도.
