@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
-import { statusColor } from '../theme';
+import { statusFill } from '../theme';
 import type { Room } from '../types/room';
 import structureSvg from '../assets/gikview-structure.svg?raw';
 
@@ -45,8 +45,8 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
                 )
               : node;
           if (!shape) return;
-          shape.style.fill = statusColor(room.isOccupied);
-          shape.style.fillOpacity = '0.6';
+          shape.style.fill = statusFill(room.isOccupied, isDarkMode);
+          shape.style.fillOpacity = '1';
           shape.style.transition = 'fill 0.3s ease';
         });
     });
