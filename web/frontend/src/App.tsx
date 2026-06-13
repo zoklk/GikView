@@ -3,6 +3,7 @@ import type { User } from 'oidc-client-ts';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
 import { IsometricBuilding } from './components/IsometricBuilding';
 import { LoginPage } from './components/LoginPage';
+import { ThemeIcon } from './components/ThemeIcon';
 import { WS_BASE_URL } from './services/api';
 import { authService } from './services/auth';
 import { roomCatalog } from './data/roomCatalog'; // 방 메타데이터(이름/층/동) 베이스
@@ -199,7 +200,17 @@ function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={() => authService.login()} />;
+    return (
+      <LoginPage
+        onLogin={() => {
+          // 핸들러 발화 확인 + signinRedirect 조용한 reject 노출(클릭 먹통 진단용).
+          console.log('🔑 로그인 클릭 → signinRedirect');
+          authService.login().catch((e) => console.error('❌ 로그인 리다이렉트 실패:', e));
+        }}
+        isDarkMode={isDarkMode}
+        onToggleDark={() => setIsDarkMode(!isDarkMode)}
+      />
+    );
   }
 
   return (
@@ -249,26 +260,6 @@ function App() {
         )}
       </main>
     </div>
-  );
-}
-
-// Sun/Moon 인라인 아이콘 (lucide path). 아이콘 한두 개 위해 lucide-react 배럴
-// 전체(1500+ 모듈) 끌어오면 prod 번들러 부하 → 인라인으로 대체.
-function ThemeIcon({ dark }: { dark: boolean }) {
-  return (
-    <svg
-      width={17} height={17} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
-    >
-      {dark ? (
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </>
-      )}
-    </svg>
   );
 }
 
