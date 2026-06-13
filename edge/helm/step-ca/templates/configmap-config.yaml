@@ -28,14 +28,14 @@ data:
             "name": "device-bootstrap",
             "roots": {{ .Values.caJson.deviceBootstrapRoots | quote }},
             "claims": { "defaultTLSCertDuration": "2160h", "disableRenewal": true },
-            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cLeafTemplate | toJson }} } }
+            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cBootstrapTemplate | toJson }} } }
           },
           {
             "type": "X5C",
             "name": "device-renewal",
             "roots": {{ .Values.caJson.deviceRenewalRoots | quote }},
             "claims": { "defaultTLSCertDuration": "2160h", "allowRenewalAfterExpiry": false },
-            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cLeafTemplate | toJson }} } }
+            "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": {{ .Values.caJson.x5cRenewalTemplate | toJson }} } }
           },
           {
             "type": "JWK",

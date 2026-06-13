@@ -38,7 +38,7 @@ config + CA 자료를 공급하는 모드가 **`inject` / `existingSecrets` / `b
 
 ```yaml
 # edge/helm/step-ca/values.yaml — 엄브렐라. "step-certificates:" 블록은 업스트림 서브차트로 전달.
-# ⚠ 이 블록은 요지 발췌다 — initContainer args / caJson.x5cLeafTemplate 등의 *정확한* 내용은
+# ⚠ 이 블록은 요지 발췌다 — initContainer args / caJson.x5cBootstrapTemplate · caJson.x5cRenewalTemplate 등의 *정확한* 내용은
 #   edge/helm/step-ca/values.yaml 이 정본. 둘이 어긋나면 values.yaml 을 믿을 것.
 step-certificates:
   nameOverride: step-ca           # 위 주석 참조
@@ -194,7 +194,7 @@ step-certificates:
       { "type": "X5C", "name": "device-renewal",
         "roots": "<base64 -w0 of intermediate_ca.crt>",
         "claims": { "defaultTLSCertDuration": "2160h", "allowRenewalAfterExpiry": false },
-        "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": "<device-bootstrap 와 동일 — {{ fail }} 가드 + DefaultLeafTemplate 필드>" } } },
+        "options": { "x509": { "templateData": { "allowedCNs": [] }, "template": "{{- $self := .AuthorizationCrt.Subject.CommonName -}}{{- $wl := .allowedCNs -}}{{- if ne .Subject.CommonName $self }}{{ fail (printf \"common name %q does not match authenticating certificate %q (renewal re-issues own identity only)\" .Subject.CommonName $self) }}{{- end -}}{{- if not (has .Subject.CommonName $wl) }}{{ fail (printf \"common name %q is not allowed (not in device whitelist)\" .Subject.CommonName) }}{{- end -}}{{- range .SANs }}{{- if ne .Type \"dns\" }}{{ fail (printf \"SAN type %q is not allowed (devices get DNS SANs only)\" .Type) }}{{- end }}{{- if ne .Value $self }}{{ fail (printf \"SAN %q does not match authenticating certificate %q\" .Value $self) }}{{- end }}{{- end -}}{ \"subject\": {{ toJson .Subject }}, \"sans\": {{ toJson .SANs }}, \"keyUsage\": [\"digitalSignature\"], \"extKeyUsage\": [\"serverAuth\",\"clientAuth\"] }" } } },
       { "type": "JWK", "name": "admin",
         "key": { "<admin_jwk.pub.json 내용 — caJson.adminJwk.key>": "..." },
         "encryptedKey": "" }
@@ -363,10 +363,12 @@ shred -u smoke-bootstrap.crt smoke-bootstrap.key
 - dev 전용 — prod 엔 안 만든다(ArgoCD 배포, 스모크 미실행). Secret/`step` CLI 둘 중 하나라도 없으면
   #10 은 `note:` self-skip. 8760h 만료 시 같은 명령으로 재발급 + Secret 갱신 (trust 앵커가 아니라 내부
   테스트 크리덴셜이라 로테이션 영향 범위는 스모크 한정).
-- 신원 CN(`smoke-bootstrap`)은 화이트리스트에 없어도 됨 — `{{ fail }}` 가드는 X5C 토큰 서명자 CN 이 아니라
-  *요청된 device cert* 의 CN/SAN(#10(a) 가 `step-ca-whitelist` 첫 항목 사용)만 검사. #10(a) 가 그 CN 으로
-  진짜 인증서를 발급하지만 `disableRenewal: true` + 새 serial 이라 무해 (발급 로그 노이즈 싫으면 dev
-  whitelist 에 전용 테스트 CN).
+- 신원 CN(`smoke-bootstrap`)은 화이트리스트에 없어도 됨 — **`device-bootstrap` 한정**: 그 가드는 X5C 토큰
+  서명자 CN 이 아니라 *요청된 device cert* 의 CN/SAN(#10(a) 가 `step-ca-whitelist` 첫 항목 사용)만 검사.
+  #10(a) 가 그 CN 으로 진짜 인증서를 발급하지만 `disableRenewal: true` + 새 serial 이라 무해 (발급 로그
+  노이즈 싫으면 dev whitelist 에 전용 테스트 CN). `device-renewal` 은 다름 — 그 가드는 서명자 CN
+  (`.AuthorizationCrt.Subject.CommonName`)도 보고 요청 CN/SAN 과 일치 강제하므로, 스모크가 renewal 경로를
+  치려면 인증 인증서 CN == 요청 CN 이어야 한다.
 
 ## 알려진 주의사항
 
