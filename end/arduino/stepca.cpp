@@ -92,9 +92,8 @@ static bool stepca_https(const char* method, const char* path,
   WiFiClientSecure cli;
   cli.setTrustAnchors(&caList);
   cli.setSSLVersion(BR_TLS12, BR_TLS12);
-  // rekey mTLS = 운영 중 단편화 heap(~14KB) 핸드셰이크 → 큰 연속블록 OOM. 전 PKI
-  // EC P-256 라 서버 cert체인 <1KB → RX 2048 충분, TX 1024(BearSSL 조각전송). 6KB→3KB.
-  cli.setBufferSizes(2048, 1024);
+  // 운영 중 단편화 heap 핸드셰이크 → EMQX 보다 작은 버퍼 (config STEPCA_RX/TX_BUFFER).
+  cli.setBufferSizes(STEPCA_RX_BUFFER, STEPCA_TX_BUFFER);
   if (client_chain && client_key) {
     cli.setClientECCert(client_chain, client_key, 0xFFFF, 2);
   }

@@ -105,3 +105,9 @@ constexpr const char* PATH_DEV_EXP   = "/device-cert-exp";
 // 16KB 는 연속 alloc 실패 → OOM (ssl=-1000). 실제 필요량으로.
 constexpr int TLS_RX_BUFFER = 4096;
 constexpr int TLS_TX_BUFFER = 2048;
+
+// ── step-ca rekey/sign HTTPS 버퍼 (stepca.cpp 용) ──────────────────────
+// 운영 중 단편화 heap(~14KB) 핸드셰이크라 EMQX 보다 작게. EC P-256 서버 cert
+// 체인 <1KB → RX 2048 충분. connect fail ssl= 뜨면 3072 로.
+constexpr int STEPCA_RX_BUFFER = 2048;
+constexpr int STEPCA_TX_BUFFER = 1024;
