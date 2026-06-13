@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useMemo } from 'react';
 import { statusColor } from '../theme';
 import type { Room } from '../types/room';
 import figmaSvg from '../assets/floorplan.svg?raw';
+import { relabelSvg } from './relabelMap';
 
 interface Props {
   rooms: Room[];
@@ -63,18 +64,25 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
         console.warn(`[IntegratedBuilding] SVG에서 방 id 미발견: #${room.id}`);
       }
     });
+
+    relabelSvg(svgEl); // 엘레베이터→엘베, 우편함실→우편실 (baked path 숨기고 text 덮어씀)
   }, [rooms, isDarkMode]); // 다크 토글 리렌더 후 inline fill 재적용
 
   return (
-    <div className="w-full h-full flex justify-center items-center p-8 overflow-hidden bg-transparent">
+    <div className="w-full h-full flex justify-center items-center p-2 md:p-3 overflow-hidden bg-transparent">
       
       <style>{`
         .dark svg path[stroke="#94A3B8"] { stroke: #64748B !important; }
         .dark svg rect[stroke="#94A3B8"] { stroke: #64748B !important; }
         .dark svg path[fill="#1E293B"] { fill: #F8FAFC !important; }
         .dark svg rect[fill="#1E293B"] { fill: #F8FAFC !important; }
-        /* door: figma 투명→1층 선 비침 방지용 회색을 배경색으로 칠해 숨김 (라이트/다크 자동) */
-        svg path[fill="#D9D9D9"], svg rect[fill="#D9D9D9"] { fill: var(--surface-to) !important; }
+        /* door: figma 투명→1층 선 비침 방지용 회색을 맵 배경색(surface-from)으로 칠해 숨김 */
+        svg path[fill="#D9D9D9"], svg rect[fill="#D9D9D9"] { fill: var(--surface-from) !important; }
+        /* 평면도 라벨(벡터 텍스트) 확대 — 각 라벨을 자기 bbox 중심 기준 scale → 위치·줄바꿈 불변 */
+        svg path[fill="#1E293B"] { transform-box: fill-box; transform-origin: center; transform: scale(1.3); }
+        /* 축약 라벨(엘베·우편실) 덮어쓴 text — 본문 라벨 색과 일치, 다크 대응 */
+        .map-relabel { fill: #1E293B; font-family: var(--font-sans); font-weight: 400; }
+        .dark .map-relabel { fill: #F8FAFC; }
         svg path, svg rect { transition: fill 0.3s ease, stroke 0.3s ease, opacity 0.2s ease !important; }
         /* 동(상단)·층(좌측) 라벨: 또렷하되 도형보다 약하게, 다크 대응 */
         .map-dong  { fill: #334155; opacity: 0.8; transition: fill 0.3s ease; }
@@ -85,7 +93,7 @@ export const IntegratedBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
 
       <div 
         ref={svgContainerRef}
-        className="w-full h-full max-w-[1800px] flex justify-center items-center drop-shadow-sm
+        className="w-full h-full max-w-none flex justify-center items-center drop-shadow-sm
           [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:w-auto [&>svg]:h-auto [&>svg]:block
           [&>svg]:transition-all [&>svg]:duration-700 [&>svg]:ease-in-out
           [&_path]:transition-opacity [&_path]:cursor-pointer [&_path:hover]:opacity-70

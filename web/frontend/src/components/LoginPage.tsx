@@ -1,5 +1,6 @@
 import React from 'react';
 import { IntegratedBuilding } from './IntegratedBuilding';
+import { Backdrop } from './Backdrop';
 import { ThemeIcon } from './ThemeIcon';
 import { roomCatalog } from '../data/roomCatalog';
 import { STATUS } from '../theme';
@@ -105,19 +106,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDarkMode, onTog
     </div>
   );
 };
-
-// 배경 연출: 평면도 그리드 + 브랜드 글로우 2개(데코 모먼트 단일화). fixed 라 스크롤
-// 무관, 에셋 0. prefers-reduced-motion 영향 없음(정적).
-function Backdrop() {
-  return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-      <div className="blueprint-grid absolute inset-0" />
-      {/* 다크는 표면이 이미 깊어 글로우가 과하면 페이지가 들뜸 → 다크 투명도 낮춤. */}
-      <div className="absolute -top-44 left-1/2 -translate-x-1/2 h-[44rem] w-[80rem] rounded-full bg-[#2EBFA5]/14 dark:bg-[#2EBFA5]/[0.06] blur-[130px]" />
-      <div className="absolute top-[32%] -left-40 h-[34rem] w-[34rem] rounded-full bg-[#1F7A8C]/12 dark:bg-[#1F7A8C]/[0.05] blur-[130px]" />
-    </div>
-  );
-}
 
 function CtaButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
