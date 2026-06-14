@@ -142,7 +142,7 @@ export const IsometricBuilding: React.FC<Props> = ({ rooms, isDarkMode }) => {
         `}</style>
 
         <div className="h-full flex flex-col relative" style={{ width: `${TRACK_VW}vw` }}>
-          <div className="shrink-0 relative pt-4 pb-2 pointer-events-none z-10">
+          <div className="shrink-0 relative pt-4 pb-6 pointer-events-none z-10">
             <span className="block text-xl font-black invisible">A동</span>
             <h2
               style={{ left: `${B_CENTER_VW}vw` }}
