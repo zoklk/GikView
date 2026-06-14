@@ -28,8 +28,9 @@ route:
     - matchers: [alertname="Watchdog"]   # 외부 dead-man's-switch (결정 9)
       receiver: healthchecks
       group_wait: 0s
-      group_interval: 1m
-      repeat_interval: 1m                 # 분단위 ping. 감지 지연은 healthchecks.io grace(5~10m)가 결정
+      group_interval: 5m
+      repeat_interval: 5m                 # 5m ping. group_interval/repeat_interval 둘 다 맞춰야 실제 5m
+                                          #   (group_interval 누락 시 부모 5m flush 에 묶임). 감지 지연은 healthchecks.io grace 가 결정
 
 receivers:
   - name: discord-default

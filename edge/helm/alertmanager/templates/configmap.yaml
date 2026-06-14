@@ -14,16 +14,26 @@ data:
       repeat_interval: {{ .Values.route.repeatInterval }}
       receiver: discord-default
       routes:
-        # Watchdog 하트비트: severity=none 만 분기. 24h마다 1회 Discord.
-        - matchers: [severity="none"]
-          receiver: discord-default
+        # Watchdog 하트비트: 외부 dead-man's-switch(healthchecks.io). 1m ping (결정 9).
+        # 같은 파이프(Discord) 대신 클러스터 밖으로 보내야 파이프 전체 장애를 감지.
+        - matchers: [alertname="Watchdog"]
+          receiver: healthchecks
           group_wait: 0s
+          # ping 주기 = group_interval (flush 주기) 와 repeat_interval 둘 중 큰 쪽에 묶임.
+          # 둘 다 명시해 의도(5m)를 고정 — 부모 상속에 의존하지 않음.
+          group_interval: {{ .Values.route.watchdogGroupInterval }}
           repeat_interval: {{ .Values.route.watchdogRepeatInterval }}
 
     receivers:
       - name: discord-default
         discord_configs:
           - webhook_url_file: {{ .Values.discordSecret.mountPath }}/{{ .Values.discordSecret.key }}
+
+      # 외부 watchdog 수신처 — healthchecks.io ping URL(Secret). resolved 불필요.
+      - name: healthchecks
+        webhook_configs:
+          - url_file: {{ .Values.healthchecksSecret.mountPath }}/{{ .Values.healthchecksSecret.key }}
+            send_resolved: false
 
     inhibit_rules:
       # NodeDown 시 그 노드 하위 warning 억제 (노이즈 감소).

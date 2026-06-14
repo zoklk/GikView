@@ -32,6 +32,11 @@ scrapeInterval: 30s
 etcd:
   target: ""
 
+# Hubble(Cilium) 네트워크 메트릭 스크랩 토글 (결정 9). 선행: cilium hubble.metrics.enabled (양 클러스터).
+# false 면 hubble job 미생성 — cilium metrics 미적용 환경에서 smoke 통과용. context/knowledge/hubble.md.
+hubble:
+  enabled: true
+
 persistence:
   storageClassName: local-storage
   pvName: prometheus-pv

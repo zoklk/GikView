@@ -15,7 +15,7 @@ data:
             labels:
               severity: none
             annotations:
-              summary: "알림 파이프 정상 (하트비트) — 24h마다 1회"
+              summary: "알림 파이프 정상 (하트비트) — 1m ping → healthchecks.io (결정 9)"
 
           - alert: SensorNoData
             expr: time() - gikview_sensor_last_seen_seconds > 600

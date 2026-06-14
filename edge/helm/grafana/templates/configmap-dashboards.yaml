@@ -232,3 +232,84 @@ data:
         }
       ]
     }
+  network-hubble.json: |
+    {
+      "title": "gikview network (hubble)",
+      "uid": "gikview-hubble",
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        { "id": 1, "type": "row", "title": "Flows (L3/L4)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+        {
+          "id": 2,
+          "title": "flow rate by verdict",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 1 },
+          "targets": [ { "expr": "sum by (verdict) (rate(hubble_flows_processed_total[5m]))", "refId": "A", "legendFormat": "{{`{{verdict}}`}}" } ]
+        },
+        {
+          "id": 3,
+          "title": "flow rate by protocol",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+          "targets": [ { "expr": "sum by (protocol) (rate(hubble_flows_processed_total[5m]))", "refId": "A", "legendFormat": "{{`{{protocol}}`}}" } ]
+        },
+        { "id": 4, "type": "row", "title": "Drops", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 } },
+        {
+          "id": 5,
+          "title": "drop rate by service pair / reason",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "sum by (source,destination,reason) (rate(hubble_drop_total[5m]))", "refId": "A", "legendFormat": "{{`{{source}}`}}→{{`{{destination}}`}} {{`{{reason}}`}}" } ]
+        },
+        {
+          "id": 6,
+          "title": "total flow rate",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 8 },
+          "targets": [ { "expr": "sum(rate(hubble_flows_processed_total[5m]))", "refId": "A" } ]
+        },
+        { "id": 7, "type": "row", "title": "TCP / DNS", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
+        {
+          "id": 8,
+          "title": "TCP flags rate",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 15 },
+          "targets": [ { "expr": "sum by (flag) (rate(hubble_tcp_flags_total[5m]))", "refId": "A", "legendFormat": "{{`{{flag}}`}}" } ]
+        },
+        {
+          "id": 9,
+          "title": "DNS responses by rcode",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 15 },
+          "targets": [ { "expr": "sum by (rcode) (rate(hubble_dns_responses_total[5m]))", "refId": "A", "legendFormat": "{{`{{rcode}}`}}" } ]
+        },
+        { "id": 10, "type": "row", "title": "Service pairs (귀속)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 } },
+        {
+          "id": 11,
+          "title": "top flow rate by service pair",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
+          "targets": [ { "expr": "topk(15, sum by (source,destination) (rate(hubble_flows_processed_total[5m])))", "refId": "A", "legendFormat": "{{`{{source}}`}}→{{`{{destination}}`}}" } ]
+        },
+        {
+          "id": 12,
+          "title": "top drop rate by service pair",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 22 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "topk(15, sum by (source,destination) (rate(hubble_drop_total[5m])))", "refId": "A", "legendFormat": "{{`{{source}}`}}→{{`{{destination}}`}}" } ]
+        }
+      ]
+    }

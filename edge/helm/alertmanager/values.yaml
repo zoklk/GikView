@@ -19,11 +19,21 @@ discordSecret:
   key: webhook-url
   mountPath: /etc/alertmanager/secrets
 
+# healthchecks.io ping URL = Secret (외부 watchdog, 결정 9). git 평문 금지.
+# discord 와 mountPath 분리(같은 디렉터리 키 충돌 방지).
+healthchecksSecret:
+  name: alertmanager-healthchecks
+  key: ping-url
+  mountPath: /etc/alertmanager/secrets-hc
+
 route:
   groupWait: 30s
   groupInterval: 5m
   repeatInterval: 4h
-  watchdogRepeatInterval: 24h
+  # 외부 watchdog ping 주기 = 5m. group_interval/repeat_interval 둘 다 맞춰야 실제 5m ping
+  # (group_interval 누락 시 부모 5m flush 에 의존 — 명시로 의도 고정). 감지 지연은 healthchecks.io grace 가 결정.
+  watchdogGroupInterval: 5m
+  watchdogRepeatInterval: 5m
 
 resources:
   requests:
