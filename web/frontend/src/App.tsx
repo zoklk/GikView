@@ -3,6 +3,8 @@ import type { User } from 'oidc-client-ts';
 import { IntegratedBuilding } from './components/IntegratedBuilding';
 import { IsometricBuilding } from './components/IsometricBuilding';
 import { LoginPage } from './components/LoginPage';
+import { Backdrop } from './components/Backdrop';
+import { ThemeIcon } from './components/ThemeIcon';
 import { WS_BASE_URL } from './services/api';
 import { authService } from './services/auth';
 import { roomCatalog } from './data/roomCatalog'; // 방 메타데이터(이름/층/동) 베이스
@@ -76,7 +78,7 @@ function App() {
           if (u && !u.expired) setUser(u);
         }
       } catch (e) {
-        console.error('❌ 인증 부트스트랩 실패:', e);
+        console.error('인증 부트스트랩 실패:', e);
       } finally {
         setAuthReady(true);
       }
@@ -135,14 +137,14 @@ function App() {
           try {
             fresh = await authService.signinSilent();
           } catch (e) {
-            console.error('❌ silent renew 실패:', e);
+            console.error('silent renew 실패:', e);
           }
         }
         if (closedByCleanup) return;                  // await 중 언마운트 레이스 가드
         if (fresh && !fresh.expired) {
           connect(fresh.access_token);
         } else {
-          console.warn('🔒 토큰 갱신 실패 → 로그인 필요');
+          console.warn('토큰 갱신 실패 → 로그인 필요');
           setUser(null);                              // 만료 무한 재연결 차단 → LoginPage 폴백
         }
       }, delay);
@@ -152,7 +154,6 @@ function App() {
       socket = new WebSocket(`${WS_BASE_URL}?token=${token}`);
 
       socket.onopen = () => {
-        console.log('✅ WebSocket 연결 수립');
         attempts = 0; // 연결 성공 시 backoff 리셋
         startHeartbeat(socket!);
         socket!.send(JSON.stringify({ action: 'getState' })); // 초기 상태 요청
@@ -162,16 +163,15 @@ function App() {
         try {
           handleMessage(JSON.parse(event.data) as WsMessage);
         } catch (error) {
-          console.error('❌ WebSocket 메시지 파싱 오류:', error);
+          console.error('WebSocket 메시지 파싱 오류:', error);
         }
       };
 
-      socket.onerror = (error) => console.error('❌ WebSocket 통신 오류:', error);
+      socket.onerror = (error) => console.error('WebSocket 통신 오류:', error);
 
       socket.onclose = () => {
         stopHeartbeat();
         if (!closedByCleanup) {
-          console.log('🔌 WebSocket 종료. 재연결 예약...');
           scheduleReconnect();
         }
       };
@@ -199,14 +199,33 @@ function App() {
   }
 
   if (!user) {
-    return <LoginPage onLogin={() => authService.login()} />;
+    return (
+      <LoginPage
+        onLogin={() => authService.login()}
+        isDarkMode={isDarkMode}
+        onToggleDark={() => setIsDarkMode(!isDarkMode)}
+      />
+    );
   }
 
   return (
-    <div className={`app-surface h-dvh w-dvw overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
-      <header className="glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]">
-        <div className="flex justify-between items-center px-4 md:px-7 py-3 md:py-4">
-          <div className="flex items-center gap-2.5">
+    <div className={`app-surface relative h-dvh w-dvw overflow-hidden flex flex-col select-none ${isDarkMode ? 'dark' : ''}`}>
+      <Backdrop grid={isDarkMode} />
+      <header
+        className="relative glass z-20 shrink-0 shadow-[0_4px_24px_-12px_rgba(15,23,42,0.25)]"
+        style={isDarkMode ? undefined : { background: '#C3E0E1' }}
+      >
+        <div className="flex justify-between items-center gap-3 px-4 md:px-7 py-2.5 md:py-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <a
+              href="https://open.kakao.com/o/gAd3pszi"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="문제 제보 (카카오 오픈채팅)"
+              className="grid place-items-center h-9 w-9 rounded-xl glass text-[#1F7A8C] dark:text-[#2EBFA5] shadow-sm hover:scale-105 active:scale-95 transition-transform"
+            >
+              <ChatIcon />
+            </a>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               aria-label="테마 전환"
@@ -214,7 +233,7 @@ function App() {
             >
               <ThemeIcon dark={isDarkMode} />
             </button>
-            <div className="flex items-center gap-1.5 text-[11px] md:text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5 text-[11px] md:text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2EBFA5] opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2EBFA5]" />
@@ -223,7 +242,7 @@ function App() {
             </div>
           </div>
 
-          <div className="flex flex-col items-end">
+          <div className="flex flex-col items-end shrink-0">
             <h1 className="text-3xl md:text-4xl font-black italic tracking-tighter uppercase leading-none text-[#1E293B] dark:text-[#E6F4F3]">
               Gik<span className="text-[#1F7A8C] dark:text-[#2EBFA5]">View</span>
             </h1>
@@ -231,7 +250,6 @@ function App() {
           </div>
         </div>
 
-        {/* 재실 요약 범례 — 색 의존 줄이고 텍스트+카운트로 직관 강화 */}
         <div className="flex items-center gap-2 px-4 md:px-7 pb-2.5 -mt-0.5 overflow-x-auto">
           <LegendChip color={STATUS.free} label="비어있음" count={counts.free} />
           <LegendChip color={STATUS.occupied} label="사용 중" count={counts.occupied} />
@@ -241,7 +259,12 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 w-full h-full relative overflow-hidden">
+      {/* 라이트: 구조도(본문)=밝은 glass-bg, 헤더=surface-to(청회)로 색 교환 →
+          재실 상태색 돋보이게 + 헤더 대비. 다크: 본문=surface-from 불투명(원복). */}
+      <main
+        className="flex-1 w-full h-full relative z-10 overflow-hidden"
+        style={{ background: isDarkMode ? 'var(--surface-from)' : 'var(--glass-bg)' }}
+      >
         {isDesktop ? (
           <IntegratedBuilding rooms={rooms} isDarkMode={isDarkMode} />
         ) : (
@@ -252,22 +275,14 @@ function App() {
   );
 }
 
-// Sun/Moon 인라인 아이콘 (lucide path). 아이콘 한두 개 위해 lucide-react 배럴
-// 전체(1500+ 모듈) 끌어오면 prod 번들러 부하 → 인라인으로 대체.
-function ThemeIcon({ dark }: { dark: boolean }) {
+// 말풍선 아이콘 (lucide message-circle). 문제 제보 링크용 인라인.
+function ChatIcon() {
   return (
     <svg
       width={17} height={17} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
     >
-      {dark ? (
-        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </>
-      )}
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
     </svg>
   );
 }
