@@ -81,15 +81,15 @@ access_token은 PKCE 로그인 후 프론트 인메모리에 있으므로 별도
 
 ## Frontend
 
-### 0. 인증 (oidc-client-ts + react-oidc-context)
+### 0. 인증 (oidc-client-ts)
 
 PKCE public client. 백엔드 관여 없이 프론트엔드가 전체 흐름 처리.
 auth code grant + PKCE로 client_secret 없이 토큰 발급.
 
 ```typescript
-import { UserManager, InMemoryWebStorage } from 'oidc-client-ts';
+import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 
-const SCOPE = 'openid email name student_id offline_access';
+const SCOPE = 'email name student_id offline_access'; // openid 미요청 → id_token 없음
 
 const mgr = new UserManager({
   metadataUrl:  'https://api.account.gistory.me/.well-known/openid-configuration',
@@ -98,7 +98,7 @@ const mgr = new UserManager({
   redirect_uri: REDIRECT_URI,
   scope:        SCOPE,
   response_type: 'code',
-  userStore: new InMemoryWebStorage(),  // 토큰 인메모리 유지 (XSS 방어)
+  userStore: new WebStorageStateStore({ store: window.localStorage }), // access+refresh 보관, 새로고침 생존
   // stateStore 기본값(sessionStorage) 유지 — OIDC redirect 구간 PKCE state 생존 필요
   automaticSilentRenew: true,
   includeIdTokenInSilentRenew: false,
@@ -108,44 +108,48 @@ const mgr = new UserManager({
 
 페이지 새로고침 시 흐름:
 ```
-인메모리 토큰 없음
-→ silent re-auth (prompt=none, hidden iframe)
-→ IdP 세션 쿠키 확인 (account.gistory.me 도메인)
-  → 세션 유효: authorization_code 반환 → PKCE 교환 → 새 access_token
-  → 세션 만료: 로그인 페이지
+localStorage 에서 User 복원
+→ access_token 유효: 그대로 사용
+→ 만료: refresh_token 으로 signinSilent 갱신
+  → 갱신 실패: 로그인 페이지
 ```
 
 ### 1. WebSocket 연결 수립
 
 로그인 완료 후 메인 페이지 진입 시 connect 시도.
 
-`useAuth()`는 React 훅이므로 컴포넌트 레벨에서 호출. connect는 token을 인자로 받아
-stale closure 문제 회피.
+인증은 `authService`(oidc-client-ts `UserManager` 래퍼)로 처리. User 는 `useState` 보관,
+connect 는 token 을 인자로 받아 stale closure 회피.
 
 ```typescript
-const WsProvider = () => {
-  const { user } = useAuth();
+const [user, setUser] = useState<User | null>(null);
+// 부트스트랩: ?code= 콜백 교환 또는 localStorage User 복원(만료 시 signinSilent) → setUser
 
-  const connect = (accessToken: string) => {
-    const ws = new WebSocket(
-      `${import.meta.env.VITE_WS_URL}?token=${accessToken}`
-    );
+useEffect(() => {
+  if (!user?.access_token) return;
 
-    ws.onopen    = () => {
-      startHeartbeat(ws);
-      ws.send(JSON.stringify({ action: 'getState' })); // 연결 직후 초기 상태 요청
+  let socket: WebSocket | null = null;
+  let closedByCleanup = false;
+
+  const connect = (token: string) => {
+    socket = new WebSocket(`${WS_BASE_URL}?token=${token}`);
+    socket.onopen    = () => {
+      startHeartbeat(socket!);
+      socket!.send(JSON.stringify({ action: 'getState' })); // 연결 직후 초기 상태 요청
     };
-    ws.onmessage = (e) => { handleMessage(JSON.parse(e.data)); };
-    ws.onclose   = () => { stopHeartbeat(); scheduleReconnect(); };
-    ws.onerror   = (e) => { console.error(e); };
+    socket.onmessage = (e) => { handleMessage(JSON.parse(e.data)); };
+    socket.onclose   = () => { stopHeartbeat(); if (!closedByCleanup) scheduleReconnect(); };
+    socket.onerror   = (e) => { console.error(e); };
   };
 
-  useEffect(() => {
-    if (!user?.access_token) return;
-    const ws = connect(user.access_token);
-    return () => ws?.close(); // cleanup: 재실행 전 기존 연결 닫기
-  }, [user]);
-};
+  connect(user.access_token);
+
+  return () => {                 // cleanup: 재실행/언마운트 전 기존 연결 닫기
+    closedByCleanup = true;
+    stopHeartbeat();
+    socket?.close();
+  };
+}, [user]);
 ```
 
 ### 2. 메시지 처리

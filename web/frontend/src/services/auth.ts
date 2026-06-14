@@ -30,5 +30,4 @@ export const authService = {
   handleCallback: () => userManager.signinRedirectCallback(),
   getUser: () => userManager.getUser(),
   signinSilent: () => userManager.signinSilent(),
-  logout: () => userManager.removeUser(),
 };
