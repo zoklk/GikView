@@ -6,6 +6,7 @@
 # 검증:
 #   1. /-/ready 200.
 #   2. /api/v2/status 의 config.original 에 discord receiver 포함 (Discord 라우팅 구성).
+#   3. config 에 healthchecks receiver + Watchdog route 포함 (외부 watchdog).
 
 set -euo pipefail
 NS="${NAMESPACE:?NAMESPACE env not injected by runtime}"
@@ -47,5 +48,13 @@ echo "$CONFIG" | grep -q "discord_configs" || {
   echo "  actual: $(echo "$CONFIG" | head -c 400)"
   exit 1
 }
+
+# ── 3. healthchecks webhook receiver 존재 (외부 watchdog) ──
+echo "$CONFIG" | grep -q "healthchecks" || {
+  echo "FAIL: config: 'healthchecks' receiver not present (외부 watchdog)"
+  echo "  actual: $(echo "$CONFIG" | head -c 400)"; exit 1; }
+# ── 4. Watchdog 라우트 매치 존재 ──
+echo "$CONFIG" | grep -q "Watchdog" || {
+  echo "FAIL: config: Watchdog route/match not present"; exit 1; }
 
 echo "All checks passed."
