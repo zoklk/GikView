@@ -9,7 +9,7 @@ export const STATUS = {
 } as const;
 
 /** isOccupied(boolean|null) → fill 색 */
-export const statusColor = (isOccupied: Room['isOccupied']): string =>
+const statusColor = (isOccupied: Room['isOccupied']): string =>
   isOccupied === null ? STATUS.unknown : isOccupied ? STATUS.occupied : STATUS.free;
 
 // 상태색을 베이스 위로 블렌드한 solid. 라이트=흰 베이스(파스텔), 다크=어두운 베이스
