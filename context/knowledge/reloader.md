@@ -18,14 +18,14 @@ Helm chart: `stakater/reloader` chart `2.2.11` (repo: `https://stakater.github.i
 
 ## 주요 설정
 
-기본 동작은 모든 namespace 의 Deployment/StatefulSet/DaemonSet 을 watch. 본 프로젝트는 `gikview` namespace 한정으로 제한하여 권한 최소화.
+기본 동작은 모든 namespace 의 Deployment/StatefulSet/DaemonSet 을 watch. 본 프로젝트도 전 namespace watch (`watchGlobally: true`) — ns 분할로 워크로드가 `gikview`(EMQX/Edge Gateway/Telegraf/step-ca) 와 `monitoring`(Prometheus/Grafana/Alertmanager) 에 걸침. 권한 최소화는 ns 스코핑이 아닌 **annotation 게이팅**으로 달성: `reloader.stakater.com` annotation 박힌 워크로드만 reload, 없으면 무시 (`auto-reload-all` 미설정·기본 false).
 
 ```yaml
 # edge/helm/reloader/values.yaml — 엄브렐라. stakater/reloader 서브차트가 자체적으로 모든 키를 top-level
 # "reloader:" 아래 두므로, 의존성으로 끼면 reloader.reloader.* 로 이중 중첩됨.
 reloader:
   reloader:
-    watchGlobally: false            # 단일 namespace(gikview) 한정 → ClusterRole 대신 namespaced Role
+    watchGlobally: true             # 전 namespace watch (gikview+monitoring) → ClusterRole. 대상은 annotation 게이팅으로 제한
     reloadOnCreate: true            # 새 ConfigMap/Secret 도 즉시 인식
     reloadStrategy: annotations      # default. env-vars 대비 안전
     readOnlyRootFileSystem: true     # /tmp emptyDir + 컨테이너 readOnlyRootFilesystem (trivy KSV-0014). 키 철자 그대로(FileSystem)
@@ -80,7 +80,7 @@ metadata:
 
 - **rollout 중 일시 연결 끊김**: Reloader 가 Deployment 를 patch 하면 새 ReplicaSet 생성 → 기존 Pod 종료. EMQX 라면 MQTT 연결 일시 끊김 (수 초). ESP8266 Store-and-Forward + 재연결 로직으로 흡수. cert-manager 의 `renewBefore` 를 충분히 길게 두면 (본 프로젝트 30d) 비업무 시간대 갱신 스케줄링 가능.
 
-- **RBAC 권한 범위**: `watchGlobally: false` 라도 cluster-scoped Role 이 필요 (Deployment patch). 단일 namespace 로 권한 제한하면 ClusterRole 대신 Role 사용 가능 (helm values 에서 분리 가능).
+- **RBAC 권한 범위**: `watchGlobally: true` 면 ClusterRole 필요 (전 ns Deployment watch/patch) — 서브차트 자동 생성. `false` 면 namespaced Role 로 축소되나, ns 분할(monitoring) 이후 전 ns watch 가 필요해 ClusterRole 채택.
 
 - **두 인스턴스 동시 실행 시 중복 rollout**: 같은 cluster 에 Reloader 가 2개 (예: 다른 namespace) 면 같은 Deployment 를 두 번 rollout 트리거. annotation 기반 분리 또는 단일 인스턴스 유지.
 
@@ -96,4 +96,4 @@ metadata:
 |------|-----|------|
 | `reloader.reloader.deployment.nodeSelector` | `kubernetes.io/hostname: alpha-w1` | `kubernetes.io/hostname: e-s1` |
 
-namespace 스코핑은 별도 `namespaceSelector` 가 아니라 `reloader.reloader.watchGlobally: false`(공통값)가 담당 — 릴리즈 ns(`gikview`)만 watch.
+`reloader.reloader.watchGlobally: true`(공통값) 로 전 namespace watch. 대상 제한은 ns 스코핑이 아니라 annotation 게이팅이 담당 — annotation 없는 워크로드는 무시.

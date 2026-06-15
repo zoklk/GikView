@@ -1,6 +1,6 @@
 reloader:
   reloader:
-    watchGlobally: false
+    watchGlobally: true
     reloadOnCreate: true
     reloadStrategy: annotations
     readOnlyRootFileSystem: true
