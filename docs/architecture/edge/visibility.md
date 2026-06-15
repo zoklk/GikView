@@ -7,11 +7,10 @@ edge K3s 클러스터 내부 상태 수집과 알림. 목표는 센서 데이터
 ESP8266 → EMQX → (Telegraf → InfluxDB) / (Edge Gateway → DynamoDB) 흐름에서 어느 지점이 끊겨도 감지한다.
 
 알림 파이프 watchdog(외부 dead-man's-switch)와 Hubble 기반 네트워크 관측을 추가한다 (결정 9번).
-노드 heartbeat→Lambda 안은 폐기 — 노드 liveness 는 NodeDown alert 가 이미 커버 (결정 9번).
 
 ## 다이어그램
 
-추후 추가.
+![visibility architecture](../images/visibility-architecture.png)
 
 ## 결정 사항
 
