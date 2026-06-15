@@ -1,23 +1,25 @@
-name: Frontend CI/CD
+name: Frontend CD
 
 on:
   workflow_run:
-    workflows: ["web-CI"]
+    workflows: ["Frontend CI"]
     types: [completed]
     branches: [dev, main]
+  workflow_dispatch:        # 수동 트리거 (Actions 탭 Run workflow). 실행한 브랜치로 환경 결정.
 
 env:
   AWS_REGION: ap-northeast-2
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' }}
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -27,24 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
-
-      - name: Check for frontend changes
-        id: changes
-        run: |
-          BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
-          if git diff --name-only "$BASE" HEAD | grep -q '^web/frontend/'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No web/frontend/ changes — skipping deploy."
-          fi
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set environment config
-        if: steps.changes.outputs.changed == 'true'
         run: |
-          if [ "${{ github.event.workflow_run.head_branch }}" = "main" ]; then
+          BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+          if [ "$BRANCH" = "main" ]; then
             echo "ROLE_ARN=arn:aws:iam::585192672325:role/gikview-frontend-ci-prod" >> $GITHUB_ENV
             echo "S3_BUCKET=gikview-frontend-prod" >> $GITHUB_ENV
             echo "CLOUDFRONT_ID=ELY9DHUYAKNHJ" >> $GITHUB_ENV
@@ -60,14 +50,12 @@ jobs:
           fi
 
       - name: Configure AWS credentials
-        if: steps.changes.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Node.js
-        if: steps.changes.outputs.changed == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: '24'
@@ -75,12 +63,10 @@ jobs:
           cache-dependency-path: web/frontend/package-lock.json
 
       - name: Install
-        if: steps.changes.outputs.changed == 'true'
         working-directory: web/frontend
         run: npm ci
 
       - name: Build
-        if: steps.changes.outputs.changed == 'true'
         working-directory: web/frontend
         env:
           VITE_WS_URL: ${{ env.VITE_WS_URL }}
@@ -89,14 +75,11 @@ jobs:
         run: npm run build
 
       - name: Deploy to S3
-        if: steps.changes.outputs.changed == 'true'
         run: |
           aws s3 sync web/frontend/dist/ s3://${{ env.S3_BUCKET }}/ --delete
 
       - name: Invalidate CloudFront
-        if: >-
-          ${{ steps.changes.outputs.changed == 'true' &&
-              github.event.workflow_run.head_branch == 'main' }}
+        if: ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'main' }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id ${{ env.CLOUDFRONT_ID }} \
