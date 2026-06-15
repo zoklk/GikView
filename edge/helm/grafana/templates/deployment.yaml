@@ -108,3 +108,5 @@ spec:
                 path: cluster-resources.json
               - key: data-pipeline.json
                 path: data-pipeline.json
+              - key: network-hubble.json
+                path: network-hubble.json
