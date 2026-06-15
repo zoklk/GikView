@@ -8,7 +8,6 @@ deviceRoomMapping:
   device-e00a19: room_a_2_lounge
   device-5bbdee: room_a_3_lounge1
   device-0fa2f9: room_a_3_lounge2
-  device-2d427a: room_a_3_reading
+  device-2d427a: room_b_3_meeting
   device-496d89: room_b_1_store
   device-865b0b: room_b_2_meeting
-  device-d9f113: room_b_3_meeting

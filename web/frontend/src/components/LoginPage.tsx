@@ -19,6 +19,7 @@ const OCCUPIED = new Set([
   'room-a-2-lounge',
   'room-a-3-lounge1',
   'room-b-2-meeting',
+  'room-b-3-meeting',
 ]);
 const previewRooms: Room[] = roomCatalog.map((r) => ({
   ...r,
