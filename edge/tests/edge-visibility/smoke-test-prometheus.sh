@@ -8,6 +8,7 @@
 #   2. /api/v1/status/flags 의 storage.tsdb.retention.time == 2w.
 #   3. /api/v1/targets 에 node-exporter job 의 up 타겟 존재.
 #   4. /api/v1/rules 에 alert rule(SensorNoData) 로드됨.
+#   5. /api/v1/targets 에 hubble job 의 up 타겟 존재 (선행: cilium hubble.metrics.enabled).
 
 set -euo pipefail
 NS="${NAMESPACE:?NAMESPACE env not injected by runtime}"
@@ -70,4 +71,15 @@ echo "$RULES" | jq -e '[.data.groups[]?.rules[]? | select(.name=="SensorNoData")
   exit 1
 }
 
-echo "All checks passed. (retention=$RETENTION, node-exporter up=$NE_UP)"
+# ── 5. hubble job up 타겟 존재 (선행: cilium hubble.metrics.enabled) ──
+RETRIES=12; INTERVAL=5; HB_UP=0
+for i in $(seq 1 $RETRIES); do
+  TARGETS=$(curl -sf "${BASE}/api/v1/targets" 2>/dev/null || true)
+  HB_UP=$(echo "$TARGETS" | jq '[.data.activeTargets[]? | select(.labels.job=="hubble" and .health=="up")] | length')
+  [ "${HB_UP:-0}" -ge 1 ] && break
+  echo "attempt $i/$RETRIES: hubble targets up=$HB_UP, waiting ${INTERVAL}s..."
+  sleep $INTERVAL
+done
+[ "${HB_UP:-0}" -ge 1 ] || { echo "FAIL: targets: no up target for job 'hubble' (cilium hubble.metrics 활성 확인)"; exit 1; }
+
+echo "All checks passed. (retention=$RETENTION, node-exporter up=$NE_UP, hubble up=$HB_UP)"

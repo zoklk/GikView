@@ -92,6 +92,21 @@ data:
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             regex: metrics
             action: keep
+      {{- if .Values.hubble.enabled }}
+
+      # Hubble(Cilium) 네트워크 flow 메트릭. cilium-agent 가 kube-system 의 headless
+      # svc hubble-metrics(:9965)로 평문 노출. 전 노드 agent → endpoints SD 로 개별 스크랩.
+      # 선행: cilium hubble.metrics.enabled (양 클러스터). 상세 context/knowledge/hubble.md.
+      - job_name: hubble
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["kube-system"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: hubble-metrics
+            action: keep
+      {{- end }}
       {{- if .Values.etcd.target }}
 
       - job_name: etcd

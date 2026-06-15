@@ -6,6 +6,7 @@
 # 검증:
 #   1. /api/health 200 + database == ok.
 #   2. admin 인증 → Prometheus datasource 존재 + url 일치.
+#   2b. Hubble 대시보드 provisioned (/api/search?query=hubble).
 #   3. datasource proxy 로 Prometheus 에 vector(1) 질의 성공 → grafana→prometheus 도달.
 #      (Prometheus 타입은 /health 미지원이라 proxy 쿼리로 연결성 검증.)
 
@@ -64,6 +65,12 @@ echo "$DS_URL" | grep -q "prometheus" || {
   echo "  actual: url=$DS_URL"
   exit 1
 }
+
+# ── 2b. Hubble 대시보드 provisioned ──
+DASH=$(curl -sf -u "$AUTH" "${BASE}/api/search?query=hubble" 2>/dev/null || true)
+echo "$DASH" | jq -e 'length >= 1' >/dev/null 2>&1 || {
+  echo "FAIL: dashboard: Hubble dashboard not provisioned"
+  echo "  actual: $(echo "$DASH" | head -c 300)"; exit 1; }
 
 # ── 3. proxy 로 prometheus 도달 (vector(1)) ──────────────────────────────────
 PROXY=$(curl -sf -u "$AUTH" \
