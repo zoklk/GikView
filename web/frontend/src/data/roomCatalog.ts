@@ -9,7 +9,6 @@ export const roomCatalog: Room[] = [
   { id: 'room-a-2-lounge', name: '하우스 라운지', building: 'A', floor: 2, isOccupied: null },
   { id: 'room-a-3-lounge1', name: '학생 휴게실 1', building: 'A', floor: 3, isOccupied: null },
   { id: 'room-a-3-lounge2', name: '학생 휴게실 2', building: 'A', floor: 3, isOccupied: null },
-  { id: 'room-a-3-reading', name: '노트북 열람실', building: 'A', floor: 3, isOccupied: null },
 
   // B동 (신관)
   { id: 'room-b-1-store', name: '신관 매점', building: 'B', floor: 1, isOccupied: null },
