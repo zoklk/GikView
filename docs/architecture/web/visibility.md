@@ -1,7 +1,7 @@
 # visibility
 
 - 작성일: 2026-06-16
-- 상태: 진행 중
+- 상태: 작업 완료
 
 웹서비스(API Gateway WebSocket + Lambda + DynamoDB)의 **사용자 수요(demand) 가시화**. 실사용 규모·피크 시간대·공지/광고 효과를 본다. edge visibility 가 장애 진단용인 것과 목적이 다르다(결정 1). 메트릭은 edge 의 기존 Grafana(`grafana.<domain>`)에 합류.
 
@@ -9,7 +9,7 @@ backend 구성은 [backend.md](backend.md), IAM Roles Anywhere 는 [edge/securit
 
 ## 다이어그램
 
-추후 추가.
+![web-visibility architecture](../images/web-visibility-architecture.png)
 
 ## 결정 사항
 

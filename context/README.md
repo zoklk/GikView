@@ -19,16 +19,25 @@ context/
 │   ├── edge-pipeline.md
 │   ├── edge-security.md
 │   ├── edge-storage.md
-│   └── web-backend.md
+│   ├── edge-visibility.md
+│   ├── web-backend.md
+│   ├── web-frontend.md
+│   └── web-visibility.md
 └── knowledge/
     ├── _template.md
+    ├── alerting.md
     ├── aws-resources.md
     ├── cert-manager.md
     ├── cilium-l2.md
+    ├── cloudflare-tunnel.md
     ├── emqx.md
     ├── front-back-spec.md
+    ├── grafana.md
+    ├── hubble.md
     ├── iam-roles-anywhere.md
     ├── influxdb.md
+    ├── node-exporter.md
+    ├── prometheus.md
     ├── reloader.md
     ├── step-ca.md
     ├── step-issuer.md

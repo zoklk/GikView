@@ -1,3 +1,7 @@
 metrics:
   table: gikview-metrics-prod
   stage: prod
+
+# monitoring 노드(e-s2) 고정 — prometheus/cloudflared 와 동일. control-plane 회피 affinity 와 양립.
+nodeSelector:
+  kubernetes.io/hostname: e-s2
