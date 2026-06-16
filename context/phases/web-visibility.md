@@ -11,7 +11,11 @@ web 은 AWS 관리형 서버리스라 가용성은 AWS 보장 → ops 진단 아
 - **전용 메트릭 테이블 (w-v1)**: `gikview-metrics-{stage}`, PK `metric`(S), 속성 `n`(N), on-demand. **rooms/connections 에 카운터 넣지 말 것** — handler 가 그 테이블을 Scan 해 메트릭 아이템이 방 목록에 섞여 깨짐.
 - **IAM Roles Anywhere read 경로 (w-v2)**: Trust Anchor(step-ca Intermediate) 재사용. Role 인라인 `dynamodb:GetItem` on `gikview-metrics-{stage}` (read 전용). Trust Policy `x509Subject/CN = web-visibility` 조건 필수. Profile session policy 로 이중 제한. 상세 `context/knowledge/iam-roles-anywhere.md`.
 - **handler Lambda 계측 (w-v3, web/backend 영역)**: `$connect` 를 메모리 +1 누적, "마지막 flush 후 30s 또는 50건"이면 `gikview-metrics-{stage}` 에 `UpdateItem ADD n :delta` 1회 flush 후 0 리셋. 매 connect 동기 write 금지. 코드는 web/backend phase 경로로 배포.
-- **CloudWatch 알람 (w-v4)**: Lambda `Throttles`·`ConcurrentExecutions`·`Errors` → SNS → (email 또는 변환 Lambda 경유 Discord). 무료티어 10개 내, `GetMetricData` 미사용. 대시보드 미생성.
+- **CloudWatch 알람 (w-v4)**: 핵심 실패 모드 3종만 알람 → SNS → email(자주 오면 변환 Lambda 경유 Discord). 무료티어 10개 내, `GetMetricData` 미사용, 대시보드 미생성. 전 알람 공통 `treatMissingData=notBreaching`(저트래픽 빈 주기 = OK), `Sum`/5m/1 datapoint.
+  - `broadcast` `Errors` ≥ 3: 죽으면 상태 push 중단 → 사용자 화면 조용히 stale (silent failure, 최우선).
+  - `authorizer` `Errors` ≥ 3: 죽으면 `$connect` 전면 차단 (IdP userinfo 의존 장애).
+  - `handler` `Throttles` ≥ 1: reserved concurrency 한도 도달 = 사용자 연결 거부 (cap 직접 신호).
+  - 제외: `Duration`/`Invocations`/`ConcurrentExecutions` 경고 — 결정 1(ops 범위 밖) + flap 노이즈. lead-time 필요 시 후속.
 
 cert-manager Certificate(`CN=web-visibility` → `web-visibility-tls` Secret)는 수동 아님 — exporter chart 가 템플릿(아래 Service). 선행 조건은 step-ca ClusterIssuer 존재(security phase 산출)뿐.
 
