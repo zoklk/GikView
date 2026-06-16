@@ -110,3 +110,5 @@ spec:
                 path: data-pipeline.json
               - key: network-hubble.json
                 path: network-hubble.json
+              - key: web-demand.json
+                path: web-demand.json
