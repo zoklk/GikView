@@ -1,0 +1,3 @@
+metrics:
+  table: gikview-metrics-prod
+  stage: prod

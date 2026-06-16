@@ -1,0 +1,69 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/zoklk/web-metrics-exporter
+  tag: edge
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: ghcr-pull
+
+certificate:
+  issuerName: step-cluster-issuer
+  commonName: web-visibility
+  duration: 2160h
+  renewBefore: 720h
+
+tls:
+  secretName: web-visibility-tls
+  mountPath: /tls
+
+# /metrics 노출 포트(prometheus 스크랩: web-metrics-exporter.monitoring.svc:9102). ClusterIP 내부 전용.
+service:
+  port: 9102
+
+# metrics.table / metrics.stage 는 env-specific — values-<env>.yaml 에서만 지정.
+metrics:
+  table: ""
+  stage: ""
+  key: connect
+  pollIntervalSeconds: 60
+
+# IAM Roles Anywhere read role — dev/prod 동일(재사용). Trust Anchor 는 step-ca
+# Intermediate(edge-gateway 와 공유). Role 인라인 정책은 gikview-metrics-dev/-prod
+# 양쪽 GetItem 허용 필요(단일 role 이 두 클러스터에서 사용됨).
+iamRolesAnywhere:
+  trustAnchorArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:trust-anchor/d2af7275-4f15-40f3-979f-65976d80ccbb"
+  profileArn: "arn:aws:rolesanywhere:ap-northeast-2:585192672325:profile/dea12a78-2b1e-4f52-b662-6e83963c9c4e"
+  roleArn: "arn:aws:iam::585192672325:role/gikview-web-visibility"
+  region: ap-northeast-2
+
+resources:
+  requests:
+    cpu: "20m"
+    memory: "32Mi"
+  limits:
+    cpu: "50m"
+    memory: "64Mi"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "web-metrics-exporter.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ .Values.tls.secretName | quote }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "web-metrics-exporter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "web-metrics-exporter.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: web-metrics-exporter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: METRICS_ADDR
+              value: {{ printf ":%v" .Values.service.port | quote }}
+            - name: METRICS_TABLE
+              value: {{ .Values.metrics.table | quote }}
+            - name: METRIC_STAGE
+              value: {{ .Values.metrics.stage | quote }}
+            - name: METRIC_KEY
+              value: {{ .Values.metrics.key | quote }}
+            - name: POLL_INTERVAL_SECONDS
+              value: {{ .Values.metrics.pollIntervalSeconds | quote }}
+            - name: TRUST_ANCHOR_ARN
+              value: {{ .Values.iamRolesAnywhere.trustAnchorArn | quote }}
+            - name: PROFILE_ARN
+              value: {{ .Values.iamRolesAnywhere.profileArn | quote }}
+            - name: ROLE_ARN
+              value: {{ .Values.iamRolesAnywhere.roleArn | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.iamRolesAnywhere.region | quote }}
+            - name: TLS_CERT_FILE
+              value: {{ printf "%s/tls.crt" .Values.tls.mountPath | quote }}
+            - name: TLS_KEY_FILE
+              value: {{ printf "%s/tls.key" .Values.tls.mountPath | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: web-visibility-tls
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: web-visibility-tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        - name: tmp
+          emptyDir: {}

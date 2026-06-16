@@ -1,0 +1,5 @@
+apiVersion: v2
+name: web-metrics-exporter
+version: 0.1.0
+appVersion: "0.1.0"
+description: Web demand exporter — reads the WebSocket $connect counter from DynamoDB via IAM Roles Anywhere (read-only) and exposes it to Prometheus

@@ -313,3 +313,60 @@ data:
         }
       ]
     }
+  web-demand.json: |
+    {
+      "title": "gikview web demand",
+      "uid": "gikview-web-demand",
+      "schemaVersion": 39,
+      "timezone": "browser",
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "panels": [
+        { "id": 1, "type": "row", "title": "Demand (사용자 수요)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+        {
+          "id": 2,
+          "title": "연결 유입률 (connect/s)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 1 },
+          "fieldConfig": { "defaults": { "unit": "cps", "min": 0 } },
+          "targets": [ { "expr": "rate(web_connect_total[5m])", "refId": "A", "legendFormat": "{{`{{stage}}`}}" } ]
+        },
+        {
+          "id": 3,
+          "title": "시간대별 유입 (1h)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 12, "y": 1 },
+          "fieldConfig": { "defaults": { "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60 } } },
+          "targets": [ { "expr": "increase(web_connect_total[1h])", "refId": "A", "legendFormat": "{{`{{stage}}`}}" } ]
+        },
+        {
+          "id": 4,
+          "title": "누적 연결 수",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 4, "x": 20, "y": 1 },
+          "targets": [ { "expr": "web_connect_total", "refId": "A", "legendFormat": "{{`{{stage}}`}}" } ]
+        },
+        { "id": 5, "type": "row", "title": "Exporter health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 } },
+        {
+          "id": 6,
+          "title": "last scrape age (s)",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+          "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 120 }, { "color": "red", "value": 300 } ] } } },
+          "targets": [ { "expr": "time() - web_metrics_last_scrape_success_timestamp_seconds", "refId": "A" } ]
+        },
+        {
+          "id": 7,
+          "title": "scrape errors (1h)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+          "targets": [ { "expr": "increase(web_metrics_scrape_errors_total[1h])", "refId": "A" } ]
+        }
+      ]
+    }
