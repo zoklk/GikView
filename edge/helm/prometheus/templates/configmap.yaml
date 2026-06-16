@@ -92,6 +92,13 @@ data:
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             regex: metrics
             action: keep
+
+      # web-metrics-exporter — web demand 카운터(monitoring NS). 단일 replica static.
+      # CloudWatch 아님(DynamoDB read). scrape 60s — 글로벌 30s 와 분리(RCU/비용 무관).
+      - job_name: web-metrics-exporter
+        scrape_interval: 60s
+        static_configs:
+          - targets: ["web-metrics-exporter.{{ .Release.Namespace }}.svc:9102"]
       {{- if .Values.hubble.enabled }}
 
       # Hubble(Cilium) 네트워크 flow 메트릭. cilium-agent 가 kube-system 의 headless

@@ -12,6 +12,7 @@
 |---|---|---|---|
 | backend | API Gateway WebSocket, Lambda, DynamoDB, OIDC authorizer | 작업 완료 | [backend.md](web/backend.md) |
 | frontend | React SPA, OIDC PKCE, WebSocket 실시간 맵 | 작업 완료 | [frontend.md](web/frontend.md) |
+| visibility | 사용자 수요 가시화 (DynamoDB counter exporter → Grafana), CloudWatch 알람 | 진행 중 | [visibility.md](web/visibility.md) |
 
 ## edge
 
