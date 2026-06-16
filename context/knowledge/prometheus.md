@@ -10,7 +10,7 @@ operator 없이 단일 Prometheus 서버로 운영한다. kube-prometheus-stack(
 
 - RPi 3노드 K3s에서 operator + kube-state-metrics + 기본 워크로드가 메모리/IO 부담이 크다
 - kube-prometheus-stack 기본 alert rule은 full HA 컨트롤플레인(kube-apiserver 다중, etcd quorum)을 가정 → 단일 control-plane K3s에서 오탐이 쏟아져 비활성화 작업이 별도로 든다
-- 스크랩 대상이 8종으로 고정되어 있어 `ServiceMonitor` 자동발견 이점이 작다. `scrape_configs`를 ConfigMap에 직접 명시하는 편이 투명하고 가볍다
+- 스크랩 대상이 9종으로 고정되어 있어 `ServiceMonitor` 자동발견 이점이 작다. `scrape_configs`를 ConfigMap에 직접 명시하는 편이 투명하고 가볍다
 
 태그는 `latest` 금지, 정확한 patch 핀 고정. 업그레이드 시 endoflife.date/릴리스 노트로 최신 안정 확인 후 bump.
 

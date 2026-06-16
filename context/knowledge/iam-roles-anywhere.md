@@ -12,6 +12,8 @@ AWS 관리형 서비스 — 이미지/버전 없음.
 본 프로젝트 적용 대상: Edge Gateway Pod → DynamoDB 직접 upsert (쓰기 경로).
 기존 step-ca Intermediate CA 를 Trust Anchor 로 등록하여 신규 PKI 인프라 불필요.
 
+Trust Anchor(step-ca Intermediate)는 다중 클라이언트가 공유한다. edge-gateway(`gikview-edge-gateway`, rooms write) 외에 web-metrics-exporter(`gikview-web-visibility`, metrics read-only)도 동일 Anchor 로 STS 교환 — role 별 권한만 분리.
+
 ## 구성 요소
 
 | 리소스 | 역할 |
