@@ -49,6 +49,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDarkMode, onTog
             >
               <ThemeIcon dark={isDarkMode} />
             </button>
+            <a
+              href="https://mangrove-couch-f61.notion.site/GikView-FAQ-38191e15f60f8039812adb653d97659c"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full px-4 py-2 text-sm md:text-base font-bold text-[#1F7A8C] dark:text-[#2EBFA5] hover:bg-[#1F7A8C]/8 active:scale-95 transition-all"
+            >
+              FAQ
+            </a>
             <button
               onClick={onLogin}
               className="rounded-full px-5 py-2 text-sm md:text-base font-bold text-[#1F7A8C] dark:text-[#2EBFA5] hover:bg-[#1F7A8C]/8 active:scale-95 transition-all cursor-pointer"
@@ -102,7 +110,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, isDarkMode, onTog
 
       {/* 푸터 */}
       <footer className="relative z-10 w-full max-w-5xl px-6 py-8 text-center text-xs md:text-sm font-medium opacity-40">
-        GikView · GIST 생활관 공용공간 재실 현황
+        GikView · GIST 기숙사 공용공간 재실 현황
       </footer>
     </div>
   );
