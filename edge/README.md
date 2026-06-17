@@ -4,9 +4,28 @@ gikview 엣지 인프라. 온프레미스 RPi4 K3s 클러스터에서 센서 데
 
 ## 시스템 내 위치
 
-```
-end (ESP8266)  →  [ edge: EMQX → Telegraf → InfluxDB ]              (시계열)
-                  [ edge: EMQX → Edge Gateway → DynamoDB ]  →  web  (현재 상태)
+```mermaid
+flowchart LR
+  dev["end<br/>ESP8266 ×8"]
+
+  subgraph edge["edge — 온프레 K3s"]
+    direction LR
+    emqx["EMQX<br/>mqtts / mTLS"]
+    tg["Telegraf"]
+    influx[("InfluxDB<br/>시계열")]
+    gw["Edge Gateway"]
+  end
+
+  ddb[("DynamoDB<br/>현재 상태")]
+  web["web<br/>React SPA"]
+
+  dev -->|mqtts| emqx
+  emqx --> tg --> influx
+  emqx --> gw --> ddb --> web
+
+  classDef hl fill:#fde68a,stroke:#d97706,stroke-width:2px,color:#000;
+  class emqx,tg,influx,gw hl;
+  style edge fill:#fff7ed,stroke:#d97706,stroke-width:2px;
 ```
 
 edge = 디바이스와 클라우드 사이. mqtts(mTLS) 수신, 디바이스 인증서 발급(step-ca), 시계열 적재(InfluxDB), 상태 변경만 DynamoDB upsert, 클러스터 관측(Prometheus/Grafana).

@@ -4,9 +4,27 @@ ESP8266 펌웨어. C4001 mmWave 점유 센서 데이터를 mTLS 로 EMQX broker 
 
 ## 시스템 내 위치
 
-```
-[ end (ESP8266) ]  →  edge (EMQX → Telegraf → InfluxDB)
-                      edge (EMQX → Edge Gateway → DynamoDB)  →  web
+```mermaid
+flowchart LR
+  dev["end<br/>ESP8266 ×8"]
+
+  subgraph edge["edge — 온프레 K3s"]
+    direction LR
+    emqx["EMQX<br/>mqtts / mTLS"]
+    tg["Telegraf"]
+    influx[("InfluxDB<br/>시계열")]
+    gw["Edge Gateway"]
+  end
+
+  ddb[("DynamoDB<br/>현재 상태")]
+  web["web<br/>React SPA"]
+
+  dev -->|mqtts| emqx
+  emqx --> tg --> influx
+  emqx --> gw --> ddb --> web
+
+  classDef hl fill:#fde68a,stroke:#d97706,stroke-width:2px,color:#000;
+  class dev hl;
 ```
 
 end = 데이터 출발점. step-ca 로 부트스트랩(EST-like)해 디바이스 인증서를 발급받고, mqtts(mTLS)로 `sensors/<cn>/occupancy` 를 주기 publish.
