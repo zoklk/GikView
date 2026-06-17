@@ -73,6 +73,25 @@ end/
 | `bootstrap-cert.pem` | 공통 bootstrap leaf (Bootstrap CA 서명) |
 | `bootstrap-key.pem` | 위 cert 의 priv key (P-256 평문 PEM) |
 
+<details>
+<summary>방별 센서 파라미터 (config.h 채울 때 참고)</summary>
+
+| room | ks | ts | l_on | l_off | r_min | r_max | r_trig |
+|------|:--:|:--:|:----:|:-----:|:-----:|:-----:|:------:|
+| room_a_1_lounge    | 3 | 3 | 1 | 5  | 0.3 | 4.2 | 4.2 |
+| room_a_1_community | 5 | 7 | 1 | 10 | 0.3 | 7.0 | 7.0 |
+| room_a_2_lounge    | 5 | 7 | 1 | 10 | 0.3 | 6.3 | 6.3 |
+| room_a_3_lounge1   | 5 | 7 | 1 | 10 | 0.3 | 6.3 | 6.3 |
+| room_a_3_lounge2   | 3 | 3 | 1 | 5  | 0.3 | 6.3 | 6.3 |
+| room_b_1_store     | 5 | 7 | 1 | 10 | 0.3 | 4.5 | 4.5 |
+| room_b_2_meeting   | 3 | 3 | 1 | 5  | 0.3 | 8.0 | 8.0 |
+| room_b_3_meeting   | 5 | 7 | 1 | 5  | 0.3 | 5.0 | 5.0 |
+
+- 순서 = `config.h` `SENSOR_*` 적용순: `{keep_sens, trig_sens, lat_on, lat_off, r_min, r_max, r_trig}`
+- 민감도 0~9(낮을수록 둔감) · lat 초 · r 미터(min≥0.3, max≤20, trig≈max)
+- 적용: device cert 삭제 후 재부팅(재부트스트랩) 또는 재플래시 → provision 시 센서 flash 에 1회 기록.
+</details>
+
 ## 배포 / 실행
 
 Arduino IDE 2.3+ 와 라이브러리: ESP8266 board package(BearSSL/LittleFS 포함), uECC(Kenneth MacKay), PubSubClient(Nick O'Leary), arduino-littlefs-upload 1.6.3+.
