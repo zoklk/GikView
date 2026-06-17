@@ -6,13 +6,9 @@
 
 ![overall architecture](docs/architecture/images/gikview-overview.png)
 
-```
-   end                 edge                                      web
-ESP8266   →(mqtts)→   EMQX ─┬→ Telegraf → InfluxDB              (시계열)
-(mmWave)                    └→ Edge Gateway → DynamoDB  →  API GW WS → React SPA
-```
-
-디바이스는 mTLS(step-ca PKI)로 EMQX 에 publish. EMQX share group 분리로 Telegraf 는 raw 시계열을 InfluxDB 에, Edge Gateway 는 상태 변경만 DynamoDB 에 쓴다. 웹은 DynamoDB Streams → Lambda → API Gateway WebSocket 으로 브라우저에 push.
+- end device는 mTLS(step-ca PKI)로 EMQX 에 재실 현황을 전송한다.
+- edge단에서는 EMQX share group분리로 Telegraf는 raw 시계열을 InfluxDB에, Edge Gateway는 상태 변경만 DynamoDB에 쓴다.
+- web은 DynamoDB Streams → Lambda → API Gateway WebSocket 으로 브라우저에게 전송한다.
 
 ## 레이어
 
@@ -24,7 +20,8 @@ ESP8266   →(mqtts)→   EMQX ─┬→ Telegraf → InfluxDB              (시
 
 ## 재현 시작점
 
-각 레이어 README 의 **"사전 작업" + "배포 / 실행"** 절을 따른다. 권장 순서: **edge**(PKI·broker 먼저) → **end**(디바이스 부트스트랩) → **web**(클라우드).
+- 각 레이어 README 의 **"사전 작업" + "배포 / 실행"** 절을 따른다.
+- 권장 순서: **edge**(PKI·broker 먼저) → **end**(디바이스 부트스트랩) → **web**(클라우드).
 
 ## 저장소 구조
 
