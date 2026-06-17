@@ -12,7 +12,7 @@
 |---|---|---|---|
 | backend | API Gateway WebSocket, Lambda, DynamoDB, OIDC authorizer | 작업 완료 | [backend.md](web/backend.md) |
 | frontend | React SPA, OIDC PKCE, WebSocket 실시간 맵 | 작업 완료 | [frontend.md](web/frontend.md) |
-| visibility | 사용자 수요 가시화 (DynamoDB counter exporter → Grafana), CloudWatch 알람 | 진행 중 | [visibility.md](web/visibility.md) |
+| visibility | 사용자 수요 가시화 (DynamoDB counter exporter → Grafana), CloudWatch 알람 | 작업 완료 | [visibility.md](web/visibility.md) |
 
 ## edge
 
@@ -21,9 +21,9 @@
 | cicd | 로컬 하네스, Argo CD, GHCR | 작업 완료 | [cicd.md](edge/cicd.md) |
 | messaging | EMQX, NodePort 노출 | 작업 완료 | [messaging.md](edge/messaging.md) |
 | storage | InfluxDB | 작업 완료 | [storage.md](edge/storage.md) |
-| security | step-ca, cert-manager, mTLS, EST-like | 작업 완료 | [security.md](edge/security.md) |
-| pipeline | Edge Gateway, AWS Lambda, DynamoDB, API Gateway | 작업 완료 | [pipeline.md](edge/pipeline.md) |
-| visibility | Prometheus, Alertmanager, Grafana, Discord 알림 | 작업 완료 | [visibility.md](edge/visibility.md) |
+| security | step-ca, cert-manager, step-issuer, Reloader, mapping-generator, mTLS, EST-like | 작업 완료 | [security.md](edge/security.md) |
+| pipeline | Telegraf(→InfluxDB), Edge Gateway(→DynamoDB), IAM Roles Anywhere | 작업 완료 | [pipeline.md](edge/pipeline.md) |
+| visibility | Prometheus, Alertmanager, Grafana, node-exporter, telegraf-freshness, Hubble, Cloudflare Tunnel, Discord/healthchecks 알림 | 작업 완료 | [visibility.md](edge/visibility.md) |
 
 ## end
 
