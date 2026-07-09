@@ -39,6 +39,11 @@ spec:
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               terminationMessagePolicy: FallbackToLogsOnError
+              {{- with .Values.lookupExtraNamespace }}
+              env:
+                - name: LOOKUP_EXTRA_NAMESPACE
+                  value: {{ . | quote }}
+              {{- end }}
               securityContext:
                 {{- toYaml .Values.containerSecurityContext | nindent 16 }}
               resources:

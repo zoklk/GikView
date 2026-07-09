@@ -25,3 +25,34 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "mapping-generator.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- with .Values.lookupExtraNamespace }}
+---
+# telegraf-lookup 복제 대상 namespace 쓰기 권한 (telegraf-freshness expected-room 소스).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mapping-generator.fullname" $ }}-lookup
+  namespace: {{ . }}
+  labels:
+    {{- include "mapping-generator.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mapping-generator.fullname" $ }}-lookup
+  namespace: {{ . }}
+  labels:
+    {{- include "mapping-generator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mapping-generator.fullname" $ }}-lookup
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mapping-generator.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}

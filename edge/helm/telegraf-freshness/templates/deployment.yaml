@@ -57,7 +57,16 @@ spec:
             - name: config
               mountPath: {{ .Values.config.mountPath }}
               readOnly: true
+            - name: lookup
+              mountPath: {{ .Values.lookup.mountPath }}
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: {{ .Values.config.configMapName }}
+        # mapping-generator(init job/15m cron)가 생성. optional 로 두면 CM 부재 기동 시
+        # file 입력이 internal_gather_errors(누적)를 올려 smoke 가 영구 실패 — 필수 mount 로
+        # CM 생성까지 기동을 지연시키는 쪽이 안전.
+        - name: lookup
+          configMap:
+            name: {{ .Values.lookup.configMapName }}

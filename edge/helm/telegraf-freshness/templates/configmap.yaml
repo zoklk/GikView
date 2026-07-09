@@ -30,6 +30,23 @@ data:
           path = "@this"
           tags = ["room_id"]
 
+    # SoT 기대 방 목록 — mapping-generator 가 이 NS 로 복제한 lookup CSV. 매 interval 재읽기라
+    # CM 갱신이 kubelet sync(~1m)로 자동 반영. SensorNoData rule 이 이 메트릭과 join 해
+    # "시리즈 부재(6h 창 이탈) = 정상" 오판(false RESOLVED)을 차단.
+    [[inputs.file]]
+      files = ["{{ .Values.lookup.mountPath }}/{{ .Values.lookup.sourceKey }}"]
+      name_override = "gikview_room"
+      data_format = "csv"
+      csv_header_row_count = 1
+      csv_tag_columns = ["room_id"]
+
+    # CSV 에 숫자 컬럼이 없어 expected=1 필드 주입 — prometheus_client 는 숫자 필드만 노출
+    # (device_id 문자열 필드는 자동 탈락). 노출명: gikview_room_expected{room_id}.
+    [[processors.defaults]]
+      namepass = ["gikview_room"]
+      [processors.defaults.fields]
+        expected = 1
+
     # gikview_sensor_last_seen_seconds{room_id} gauge + internal_* 노출. Prometheus 가 스크랩.
     [[outputs.prometheus_client]]
       listen         = ":{{ .Values.service.port }}"
