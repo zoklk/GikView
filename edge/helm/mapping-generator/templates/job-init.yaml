@@ -34,6 +34,11 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # Preserve logs in pod status after BackoffLimitExceeded pod cleanup.
           terminationMessagePolicy: FallbackToLogsOnError
+          {{- with .Values.lookupExtraNamespace }}
+          env:
+            - name: LOOKUP_EXTRA_NAMESPACE
+              value: {{ . | quote }}
+          {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:

@@ -13,8 +13,15 @@ config:
   configMapName: telegraf-freshness-config
   mountPath: /etc/telegraf
   queryInterval: "30s"
-  # InfluxDB 3 Core 파일 한도(432) 회피용 스캔 윈도. 이 기간보다 오래 조용한 방은 메트릭에서 사라짐 → "계열 부재 = stale" 로 알림.
+  # InfluxDB 3 Core 파일 한도(432) 회피용 스캔 윈도. 이 기간보다 오래 조용한 방은 last_seen
+  # 시리즈에서 사라짐 — 부재 감지는 gikview_room_expected(lookup CSV) 와의 rule join 이 담당.
   freshnessWindow: "6 hours"
+
+# mapping-generator가 이 NS로 복제하는 device→room CSV. SoT 기대 방 목록 소스.
+lookup:
+  configMapName: telegraf-lookup
+  mountPath: /lookup
+  sourceKey: lookup.csv
 
 influxdb:
   url: ""

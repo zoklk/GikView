@@ -4,7 +4,9 @@
 //
 //	emqx-acl          - EMQX file authorizer rules (Erlang terms)
 //	step-ca-whitelist - JSON array of allowed device CNs (step-ca initContainer merges it)
-//	telegraf-lookup   - device_id,room_id CSV (Telegraf lookup processor)
+//	telegraf-lookup   - device_id,room_id CSV (Telegraf lookup processor); also
+//	                    replicated into $LOOKUP_EXTRA_NAMESPACE (if set) for
+//	                    telegraf-freshness expected-room metrics
 //
 // It talks to the apiserver directly with the pod's ServiceAccount token, so the
 // build has zero module dependencies. Output writes are idempotent: a ConfigMap
@@ -48,7 +50,7 @@ func main() {
 		log.Fatalf("FATAL: %v", err)
 	}
 
-	sot, ok, err := c.getConfigMap(sotName)
+	sot, ok, err := c.getConfigMap(c.namespace, sotName)
 	if err != nil {
 		log.Fatalf("FATAL: read %s: %v", sotName, err)
 	}
@@ -65,25 +67,39 @@ func main() {
 	log.Printf("source-of-truth %s: %d valid device(s)", sotName, len(devices))
 
 	outputs := []struct {
-		name string
-		data map[string]string
+		namespace string // "" = own namespace
+		name      string
+		data      map[string]string
 	}{
-		{emqxACLName, map[string]string{"acl.conf": renderACL(devices)}},
-		{whitelistCM, map[string]string{"whitelist.json": renderWhitelist(devices)}},
-		{lookupCM, map[string]string{"lookup.csv": renderLookup(devices, pairs)}},
+		{"", emqxACLName, map[string]string{"acl.conf": renderACL(devices)}},
+		{"", whitelistCM, map[string]string{"whitelist.json": renderWhitelist(devices)}},
+		{"", lookupCM, map[string]string{"lookup.csv": renderLookup(devices, pairs)}},
+	}
+	// LOOKUP_EXTRA_NAMESPACE: replicate the lookup CSV into another namespace
+	// (telegraf-freshness lives in monitoring and CM mounts are namespace-local).
+	if ns := os.Getenv("LOOKUP_EXTRA_NAMESPACE"); ns != "" && ns != c.namespace {
+		outputs = append(outputs, struct {
+			namespace string
+			name      string
+			data      map[string]string
+		}{ns, lookupCM, map[string]string{"lookup.csv": renderLookup(devices, pairs)}})
 	}
 
 	failed := false
 	for _, o := range outputs {
-		changed, err := c.applyConfigMap(o.name, o.data)
+		ns := o.namespace
+		if ns == "" {
+			ns = c.namespace
+		}
+		changed, err := c.applyConfigMap(ns, o.name, o.data)
 		switch {
 		case err != nil:
-			log.Printf("ERROR: apply %s: %v", o.name, err)
+			log.Printf("ERROR: apply %s/%s: %v", ns, o.name, err)
 			failed = true
 		case changed:
-			log.Printf("wrote ConfigMap %s", o.name)
+			log.Printf("wrote ConfigMap %s/%s", ns, o.name)
 		default:
-			log.Printf("ConfigMap %s already up to date", o.name)
+			log.Printf("ConfigMap %s/%s already up to date", ns, o.name)
 		}
 	}
 	if failed {
@@ -257,15 +273,15 @@ func (c *client) do(method, path string, body []byte) (int, []byte, error) {
 	return resp.StatusCode, b, nil
 }
 
-func (c *client) configMapPath(name string) string {
+func (c *client) configMapPath(namespace, name string) string {
 	if name == "" {
-		return fmt.Sprintf("/api/v1/namespaces/%s/configmaps", c.namespace)
+		return fmt.Sprintf("/api/v1/namespaces/%s/configmaps", namespace)
 	}
-	return fmt.Sprintf("/api/v1/namespaces/%s/configmaps/%s", c.namespace, name)
+	return fmt.Sprintf("/api/v1/namespaces/%s/configmaps/%s", namespace, name)
 }
 
-func (c *client) getConfigMap(name string) (*configMap, bool, error) {
-	code, body, err := c.do("GET", c.configMapPath(name), nil)
+func (c *client) getConfigMap(namespace, name string) (*configMap, bool, error) {
+	code, body, err := c.do("GET", c.configMapPath(namespace, name), nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -290,8 +306,8 @@ var managedLabels = map[string]string{
 
 // applyConfigMap creates the ConfigMap or updates it so Data equals want.
 // Returns true when it actually wrote (created or changed), false on a no-op.
-func (c *client) applyConfigMap(name string, want map[string]string) (bool, error) {
-	cur, exists, err := c.getConfigMap(name)
+func (c *client) applyConfigMap(namespace, name string, want map[string]string) (bool, error) {
+	cur, exists, err := c.getConfigMap(namespace, name)
 	if err != nil {
 		return false, err
 	}
@@ -302,10 +318,10 @@ func (c *client) applyConfigMap(name string, want map[string]string) (bool, erro
 		}
 		b, _ := json.Marshal(configMap{
 			APIVersion: "v1", Kind: "ConfigMap",
-			Metadata: configMapMeta{Name: name, Namespace: c.namespace, Labels: labels},
+			Metadata: configMapMeta{Name: name, Namespace: namespace, Labels: labels},
 			Data:     want,
 		})
-		code, body, err := c.do("POST", c.configMapPath(""), b)
+		code, body, err := c.do("POST", c.configMapPath(namespace, ""), b)
 		if err != nil {
 			return false, err
 		}
@@ -326,7 +342,7 @@ func (c *client) applyConfigMap(name string, want map[string]string) (bool, erro
 		cur.Metadata.Labels[k] = v
 	}
 	b, _ := json.Marshal(cur)
-	code, body, err := c.do("PUT", c.configMapPath(name), b)
+	code, body, err := c.do("PUT", c.configMapPath(namespace, name), b)
 	if err != nil {
 		return false, err
 	}
